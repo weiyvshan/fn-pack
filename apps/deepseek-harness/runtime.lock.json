@@ -1,0 +1,57 @@
+{
+  "schema": 5,
+  "upstream_repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "upstream_commit": "687f282e8625c6b8d11ff58211a90524be2e4317",
+  "upstream_tree": "f127f0f96a815eac4dea336a2ae0d9cd0f2aa82d",
+  "upstream_commit_date": "2026-10-17T15:22:43+08:00",
+  "pnpm_lock_sha256": "4637cca3b89c4c8d5a147321710e597aa62ec2444a3772ab542be5690893dfe4",
+  "cli_package_sha256": "d42efe9f3ff424f602f11598af8805ad25039953ebbbd3c163d67875f7e8658b",
+  "source_patches": [
+    {
+      "path": "patches/0002-dsh-plugin-profile-scoped-management.patch",
+      "artifact_path": "source-patches/0002-dsh-plugin-profile-scoped-management.patch",
+      "sha256": "955c619b25940b37f91e31b23b0c7f9ced89159e93edc9d648f7686fe1db05b8",
+      "test_target": "packages/boot/plugin-manager/tests/operations.spec.ts"
+    },
+    {
+      "path": "patches/0004-web-app-private-auth-token-handoff.patch",
+      "artifact_path": "source-patches/0004-web-app-private-auth-token-handoff.patch",
+      "sha256": "2d0042a10d0b65962309a7abe750d9b73ae1205ccc8398df6b09cd3ebafeb9ad",
+      "test_target": "packages/bundle/web-app/tests/web-app.spec.ts"
+    },
+    {
+      "path": "patches/0007-attachment-storage-respect-access-boundary.patch",
+      "artifact_path": "source-patches/0007-attachment-storage-respect-access-boundary.patch",
+      "sha256": "592a2e95d8421a65f153b8565036c2b76e8db265b5d02aea1ce73a01033c250c",
+      "test_target": "packages/attachment/attachment-local/tests/store.spec.ts"
+    },
+    {
+      "path": "patches/0008-fnos-transport-defaults.patch",
+      "artifact_path": "source-patches/0008-fnos-transport-defaults.patch",
+      "sha256": "cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12",
+      "test_target": "packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts"
+    }
+  ],
+  "dsh_version": "0.2.1-rc.2",
+  "node_engines": "^22.19.0 || >=24.0.0",
+  "pnpm": {
+    "version": "11.28.5",
+    "asset_name": "pnpm-11.28.5.tgz",
+    "asset_url": "https://registry.npmjs.org/pnpm/-/pnpm-11.28.5.tgz",
+    "asset_sha256": "1ef4e447a68713656064f3f174c0f44719960a043a3fe2299169d08cf1dbf8ee",
+    "integrity": "sha512-SEVj0wtMKtJ8tIqpT/KzAtvOvI/2vyiBbCWJiG4UbOf3bzVPO8GkOOb16XaMMCqgpvet2CMpA81M+BQmy8FNng=="
+  },
+  "landlock_run": {
+    "package_name": "@deepseek-ai/node-addon-system-linux-x64",
+    "version": "0.1.2",
+    "asset_name": "node-addon-system-linux-x64-0.1.2.tgz",
+    "asset_url": "https://registry.npmjs.org/@deepseek-ai/node-addon-system-linux-x64/-/node-addon-system-linux-x64-0.1.2.tgz",
+    "asset_sha256": "77fb771bee2133c3ffd1f96c7b9435ddb1ccaee72b6814f6f4391343a611cc20",
+    "integrity": "sha512-S2aPVHvYCpNCppCFyNlooMYuTB7ucK5lvD9oXQQ42v5Z2s5AoaiCdjz9r2l+ED2rI5oS1x0cUZmKjJH2dxV0pg==",
+    "binary_path": "bin/landlock-run"
+  },
+  "platform": "x86",
+  "target": "linux-x64-gnu",
+  "elf_machine": 62,
+  "workspace_closure_algorithm": 2
+}

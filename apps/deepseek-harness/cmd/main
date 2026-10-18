@@ -1,0 +1,477 @@
+#!/bin/sh
+set -eu
+
+: "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+: "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+: "${TRIM_PKGHOME:?TRIM_PKGHOME is required}"
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "${SCRIPT_DIR}/config-common"
+
+APP_NAME=${TRIM_APPNAME:-deepseek-harness}
+NODE_RUNTIME_BIN=/var/apps/nodejs_v24/target/bin
+NODE_BIN="${NODE_RUNTIME_BIN}/node"
+DSH_ENTRY="${TRIM_APPDEST}/server/node_modules/@deepseek-ai/dsh/lib/bin.js"
+BUNDLED_SKILL_DIR="${TRIM_APPDEST}/builtin-skills"
+BUNDLED_MAINTENANCE_SKILL="${BUNDLED_SKILL_DIR}/dsh-maintenance/SKILL.md"
+BUNDLED_SKILL_CREATOR="${BUNDLED_SKILL_DIR}/skill-creator/SKILL.md"
+LANDLOCK_LAUNCHER="${TRIM_APPDEST}/server/node_modules/@deepseek-ai/node-addon-system-linux-x64/bin/landlock-run"
+PNPM_ENTRY="${TRIM_APPDEST}/pnpm/bin/pnpm.cjs"
+PNPM_BIN="${TRIM_PKGVAR}/bin"
+PNPM_LAUNCHER="${PNPM_BIN}/pnpm"
+DSH_LAUNCHER="${PNPM_BIN}/dsh"
+PROXY_ENTRY="${TRIM_APPDEST}/gateway-proxy.js"
+PORT_SELECTOR="${TRIM_APPDEST}/select-loopback-port.js"
+BACKEND_PROBE="${TRIM_APPDEST}/backend-ready.js"
+SOCKET_PATH="${TRIM_APPDEST}/app.sock"
+GATEWAY_PREFIX=/app/deepseek-harness
+DSH_HOME="${TRIM_PKGHOME}/.dsh"
+DSH_PROFILES_ROOT="${DSH_HOME}/profiles"
+GATEWAY_COMPAT_PATH="${DSH_HOME}/gateway-compat.json"
+LOG_FILE="${TRIM_PKGVAR}/dsh.log"
+PID_FILE="${TRIM_PKGVAR}/dsh.pid"
+PROXY_PID_FILE="${TRIM_PKGVAR}/proxy.pid"
+PORT_FILE="${TRIM_PKGVAR}/backend.port"
+AUTH_TOKEN_FILE="${TRIM_PKGVAR}/web-auth.token"
+SHELL_STATE_DIR="${TRIM_PKGVAR}/shell"
+SHELL_HISTORY_FILE="${SHELL_STATE_DIR}/bash_history"
+SHELL_XDG_STATE_HOME="${SHELL_STATE_DIR}/state"
+SHELL_XDG_CACHE_HOME="${SHELL_STATE_DIR}/cache"
+SHELL_XDG_DATA_HOME="${SHELL_STATE_DIR}/data"
+ERROR_LOG=${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}
+PORT=
+PROXY_URL=
+STARTUP_CLEANUP=false
+STARTUP_STABILITY_SECONDS=15
+export PATH="${PNPM_BIN}:${NODE_RUNTIME_BIN}:${PATH:-/usr/bin:/bin}"
+export DSH_FNOS_PLUGIN_POLICY=1
+export DSH_BUNDLED_SKILL_DIR="$BUNDLED_SKILL_DIR"
+unset DSH_ADDITIONAL_WRITABLE_ROOTS DSH_PERMISSION_MODE
+
+DATA_SHARE_PATHS=${TRIM_DATA_SHARE_PATHS:-}
+WORKSPACE=${DATA_SHARE_PATHS%%:*}
+[ -n "$WORKSPACE" ] || WORKSPACE="${TRIM_PKGVAR}/workspace"
+
+log_message() {
+  mkdir -p "$TRIM_PKGVAR"
+  printf '[%s] %s\n' "$(date '+%F %T')" "$*" >>"$LOG_FILE"
+}
+
+report_error() {
+  message=$1
+  printf '%s\n' "$message" >"$ERROR_LOG" 2>/dev/null || true
+  log_message "ERROR: $message"
+  printf '%s\n' "$message" >&2
+}
+
+require_package_start_identity() {
+  current_uid=$(id -u 2>/dev/null || true)
+  expected_uid=${TRIM_UID:-}
+  case "$current_uid" in
+    ''|*[!0-9]*)
+      printf '%s\n' "DeepSeek Harness 无法确认当前运行账户；必须通过 fnOS 应用中心启用。" >&2
+      return 1
+      ;;
+  esac
+  case "$expected_uid" in
+    ''|*[!0-9]*)
+      printf '%s\n' "DeepSeek Harness 缺少有效的包账户身份；必须通过 fnOS 应用中心启用。" >&2
+      return 1
+      ;;
+  esac
+  if [ "$current_uid" != "$expected_uid" ]; then
+    printf '%s\n' "DeepSeek Harness 拒绝以错误账户启动（当前 UID ${current_uid}，包 UID ${expected_uid}）；请通过 fnOS 应用中心启用。" >&2
+    return 1
+  fi
+}
+
+read_pid() {
+  file=$1
+  [ -r "$file" ] || return 1
+  pid=$(head -n 1 "$file" | tr -d '[:space:]')
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s\n' "$pid" ;;
+  esac
+}
+
+pid_matches() {
+  pid=$1
+  expected=$2
+  [ -r "/proc/${pid}/cmdline" ] || return 1
+  command_line=$(tr '\000' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)
+  case "$command_line" in
+    *"$expected"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+owned_process_running() {
+  pid_file=$1
+  expected=$2
+  pid=$(read_pid "$pid_file") || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  pid_matches "$pid" "$expected"
+}
+
+stop_owned_process() {
+  pid_file=$1
+  expected=$2
+  label=$3
+  pid=$(read_pid "$pid_file" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    if ! pid_matches "$pid" "$expected"; then
+      log_message "Removed stale ${label} PID file without signaling pid ${pid}."
+      rm -f -- "$pid_file"
+      return 0
+    fi
+    kill -TERM "$pid" 2>/dev/null || true
+    waited=0
+    while kill -0 "$pid" 2>/dev/null && pid_matches "$pid" "$expected" && [ "$waited" -lt 10 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null && pid_matches "$pid" "$expected"; then
+      kill -KILL "$pid" 2>/dev/null || true
+      sleep 1
+    fi
+  fi
+  rm -f -- "$pid_file"
+}
+
+cleanup_incomplete_start() {
+  if [ "${STARTUP_CLEANUP:-false}" = true ]; then
+    STARTUP_CLEANUP=false
+    log_message "Cleaning up an incomplete DeepSeek Harness startup."
+    stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
+    rm -f -- "$SOCKET_PATH"
+    stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
+    rm -f -- "$PORT_FILE" "$AUTH_TOKEN_FILE"
+  fi
+}
+
+interrupt_startup() {
+  report_error "DeepSeek Harness 启动脚本被中断；已清理本次启动的后台进程。"
+  exit 1
+}
+
+arm_startup_cleanup() {
+  STARTUP_CLEANUP=true
+  trap cleanup_incomplete_start 0
+  trap interrupt_startup 1 2 15
+}
+
+disarm_startup_cleanup() {
+  STARTUP_CLEANUP=false
+  trap - 0 1 2 15
+}
+
+load_private_environment() {
+  if [ -f "${DSH_HOME}/.env" ]; then
+    api_key=$(sed -n 's/^DEEPSEEK_API_KEY=//p' "${DSH_HOME}/.env" | head -n 1)
+    if [ -n "$api_key" ]; then
+      length=${#api_key}
+      if [ "$length" -lt 11 ] || [ "$length" -gt 259 ] || ! printf '%s' "$api_key" | grep -Eq '^sk-[A-Za-z0-9_-]+$'; then
+        report_error "应用私有目录中的 DeepSeek API Key 格式无效。"
+        return 1
+      fi
+      export DEEPSEEK_API_KEY="$api_key"
+    fi
+  fi
+
+  if [ -f "${DSH_HOME}/proxy.url" ]; then
+    proxy_url=$(head -n 1 "${DSH_HOME}/proxy.url" | tr -d '\r\n')
+    if ! printf '%s' "$proxy_url" | grep -Eq '^http://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]:[0-9]{1,5}$|^http://[A-Za-z0-9]:[0-9]{1,5}$'; then
+      report_error "应用私有目录中的 HTTP 代理配置无效。"
+      return 1
+    fi
+    proxy_port=${proxy_url##*:}
+    if [ "$proxy_port" -lt 1 ] 2>/dev/null || [ "$proxy_port" -gt 65535 ] 2>/dev/null; then
+      report_error "应用私有目录中的 HTTP 代理端口超出范围。"
+      return 1
+    fi
+    PROXY_URL=$proxy_url
+  fi
+}
+
+validate_proxy_runtime() {
+  [ -n "$PROXY_URL" ] || return 0
+  if ! "$NODE_BIN" --help 2>/dev/null | grep -Fq -- '--use-env-proxy'; then
+    report_error "当前 Node.js 运行时不支持 --use-env-proxy；无法启用已配置的 HTTP 代理。"
+    return 1
+  fi
+}
+
+select_terminal_shell() {
+  if [ -x /bin/bash ]; then
+    SHELL=/bin/bash
+  elif [ -x /bin/sh ]; then
+    SHELL=/bin/sh
+  else
+    report_error "没有可用于插件终端的 shell；需要可执行的 /bin/bash 或 /bin/sh。"
+    return 1
+  fi
+  export SHELL
+  log_message "Selected plugin terminal shell: ${SHELL}."
+}
+
+start_dsh_process() {
+  if [ -n "$PROXY_URL" ]; then
+    log_message "Starting DSH with the application-configured HTTP proxy."
+    nohup env \
+      HTTP_PROXY="$PROXY_URL" \
+      HTTPS_PROXY="$PROXY_URL" \
+      http_proxy="$PROXY_URL" \
+      https_proxy="$PROXY_URL" \
+      NO_PROXY="127.0.0.1,localhost" \
+      no_proxy="127.0.0.1,localhost" \
+      npm_config_proxy="$PROXY_URL" \
+      npm_config_https_proxy="$PROXY_URL" \
+      npm_config_noproxy="127.0.0.1,localhost" \
+      "$NODE_BIN" --use-env-proxy "$DSH_ENTRY" web --port "$PORT" --trusted-host 127.0.0.1 >>"$LOG_FILE" 2>&1 &
+  else
+    nohup "$NODE_BIN" "$DSH_ENTRY" web --port "$PORT" --trusted-host 127.0.0.1 >>"$LOG_FILE" 2>&1 &
+  fi
+  DSH_PID=$!
+}
+
+select_loopback_port() {
+  selected_port=$("$NODE_BIN" "$PORT_SELECTOR" 2>>"$LOG_FILE") || {
+    report_error "无法为 DeepSeek Harness 分配本机回环端口。"
+    return 1
+  }
+  selected_port=$(printf '%s' "$selected_port" | tr -d '[:space:]')
+  case "$selected_port" in
+    ''|*[!0-9]*)
+      report_error "端口选择器返回了无效结果。"
+      return 1
+      ;;
+  esac
+  if [ "$selected_port" -lt 1 ] || [ "$selected_port" -gt 65535 ]; then
+    report_error "端口选择器返回了超出范围的端口。"
+    return 1
+  fi
+  PORT=$selected_port
+  umask 077
+  printf '%s\n' "$PORT" >"$PORT_FILE"
+}
+
+service_status() {
+  dsh_running=false
+  proxy_running=false
+  owned_process_running "$PID_FILE" "$DSH_ENTRY" && dsh_running=true
+  owned_process_running "$PROXY_PID_FILE" "$PROXY_ENTRY" && [ -S "$SOCKET_PATH" ] && proxy_running=true
+
+  backend_ready=false
+  if [ "$dsh_running" = true ] && [ -r "$PORT_FILE" ] && [ -x "$NODE_BIN" ] && [ -f "$BACKEND_PROBE" ]; then
+    backend_port=$(head -n 1 "$PORT_FILE" | tr -d '[:space:]')
+    # Transient load spikes (session scans, backup jobs) can delay one HTTP
+    # probe past its timeout; retry before reporting a partial state so the
+    # platform does not record a crash for a healthy, busy service.
+    status_probe=0
+    while [ "$status_probe" -lt 3 ]; do
+      if "$NODE_BIN" "$BACKEND_PROBE" "$backend_port" 1000 >/dev/null 2>&1; then
+        backend_ready=true
+        break
+      fi
+      status_probe=$((status_probe + 1))
+      [ "$status_probe" -lt 3 ] && sleep 1
+    done
+  fi
+
+  if [ "$dsh_running" = true ] && [ "$proxy_running" = true ] && [ "$backend_ready" = true ]; then
+    return 0
+  fi
+  if [ "$dsh_running" = false ] && [ "$proxy_running" = false ]; then
+    return 3
+  fi
+  return 1
+}
+
+wait_for_backend_stability() {
+  stable_for=0
+  while [ "$stable_for" -lt "$STARTUP_STABILITY_SECONDS" ]; do
+    sleep 1
+    stable_for=$((stable_for + 1))
+    if ! owned_process_running "$PID_FILE" "$DSH_ENTRY" ||
+       ! "$NODE_BIN" "$BACKEND_PROBE" "$PORT" 1000 >/dev/null 2>&1; then
+      report_error "DeepSeek Harness 后端在初次就绪后的稳定性检查期间退出；请检查 ${LOG_FILE}。"
+      return 1
+    fi
+  done
+  log_message "DeepSeek Harness backend remained healthy for ${STARTUP_STABILITY_SECONDS} seconds."
+}
+
+start_service() {
+  require_package_start_identity || return 1
+  current=0
+  service_status || current=$?
+  if [ "$current" -eq 0 ]; then
+    log_message "DeepSeek Harness is already running."
+    return 0
+  fi
+  if [ "$current" -eq 1 ]; then
+    log_message "Repairing partial service state before startup."
+    stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
+    stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
+    rm -f -- "$SOCKET_PATH" "$PORT_FILE" "$AUTH_TOKEN_FILE"
+  fi
+
+  if [ ! -x "$NODE_BIN" ]; then
+    report_error "Node.js 24 运行时不可用：${NODE_BIN}"
+    return 1
+  fi
+  if [ ! -f "$DSH_ENTRY" ]; then
+    report_error "DeepSeek Harness 运行时缺失：${DSH_ENTRY}"
+    return 1
+  fi
+  if [ ! -x "$LANDLOCK_LAUNCHER" ]; then
+    report_error "Landlock 沙箱启动器不可执行：${LANDLOCK_LAUNCHER}"
+    return 1
+  fi
+  if [ ! -f "$PNPM_ENTRY" ]; then
+    report_error "应用私有 pnpm 运行时缺失：${PNPM_ENTRY}"
+    return 1
+  fi
+  if [ ! -x "$PNPM_LAUNCHER" ]; then
+    report_error "应用私有 pnpm 启动器不可执行：${PNPM_LAUNCHER}"
+    return 1
+  fi
+  if [ ! -x "$DSH_LAUNCHER" ]; then
+    report_error "DeepSeek Harness 命令入口不可执行：${DSH_LAUNCHER}"
+    return 1
+  fi
+  if [ ! -f "$PROXY_ENTRY" ]; then
+    report_error "统一网关代理缺失：${PROXY_ENTRY}"
+    return 1
+  fi
+  if [ ! -f "$PORT_SELECTOR" ]; then
+    report_error "回环端口选择器缺失：${PORT_SELECTOR}"
+    return 1
+  fi
+  if [ ! -f "$BACKEND_PROBE" ]; then
+    report_error "DeepSeek Harness 后端就绪探测器缺失：${BACKEND_PROBE}"
+    return 1
+  fi
+  if [ ! -f "$BUNDLED_MAINTENANCE_SKILL" ]; then
+    report_error "DeepSeek Harness 内置运维技能缺失：${BUNDLED_MAINTENANCE_SKILL}"
+    return 1
+  fi
+  if [ ! -f "$BUNDLED_SKILL_CREATOR" ]; then
+    report_error "DeepSeek Harness 内置技能创建器缺失：${BUNDLED_SKILL_CREATOR}"
+    return 1
+  fi
+  if ! ensure_dsh_home "$TRIM_PKGHOME" "${TRIM_APPDEST}/server"; then
+    report_error "无法初始化 DeepSeek Harness 数据目录：${TRIM_PKGHOME}/.dsh"
+    return 1
+  fi
+
+  if ! ensure_shell_state "$TRIM_PKGVAR"; then
+    report_error "无法初始化模型 shell 持久化目录：${TRIM_PKGVAR}/shell"
+    return 1
+  fi
+
+  mkdir -p "$TRIM_PKGVAR" "${DSH_HOME}/logs" "$WORKSPACE"
+  select_terminal_shell || return 1
+  landlock_probe=$("$LANDLOCK_LAUNCHER" --probe 2>>"$LOG_FILE") || {
+    report_error "当前 fnOS 内核无法启用 Landlock；workspace-write 沙箱不可用。"
+    return 1
+  }
+  case "$landlock_probe" in
+    'landlock: fully enforced'|'landlock: partially enforced (older ABI)') ;;
+    *)
+      report_error "Landlock 沙箱探测返回了未知结果。"
+      return 1
+      ;;
+  esac
+  log_message "Landlock sandbox probe: ${landlock_probe}."
+  export DSH_HOME DSH_WORKSPACE="$WORKSPACE" DSH_GATEWAY_PROFILES_ROOT="$DSH_PROFILES_ROOT" DSH_GATEWAY_COMPAT_PATH="$GATEWAY_COMPAT_PATH" DSH_WEB_AUTH_TOKEN_FILE="$AUTH_TOKEN_FILE" HOME="$TRIM_PKGHOME" HISTFILE="$SHELL_HISTORY_FILE" XDG_STATE_HOME="$SHELL_XDG_STATE_HOME" XDG_CACHE_HOME="$SHELL_XDG_CACHE_HOME" XDG_DATA_HOME="$SHELL_XDG_DATA_HOME"
+  load_private_environment || return 1
+  validate_proxy_runtime || return 1
+  select_loopback_port || return 1
+  rm -f -- "$AUTH_TOKEN_FILE"
+
+  log_message "Starting DSH on loopback port ${PORT}."
+  cd "$WORKSPACE" || {
+    report_error "无法进入工作区：${WORKSPACE}"
+    return 1
+  }
+  arm_startup_cleanup
+  start_dsh_process
+  printf '%s\n' "$DSH_PID" >"$PID_FILE"
+
+  waited=0
+  while [ "$waited" -lt 45 ]; do
+    sleep 1
+    waited=$((waited + 1))
+    if ! owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
+      report_error "DeepSeek Harness 启动后立即退出；请检查 ${LOG_FILE}。"
+      return 1
+    fi
+    if "$NODE_BIN" "$BACKEND_PROBE" "$PORT" 1000 >/dev/null 2>&1; then
+      log_message "DeepSeek Harness backend HTTP endpoint is ready."
+      break
+    fi
+  done
+  if [ "$waited" -ge 45 ]; then
+    report_error "DeepSeek Harness 后端在 45 秒内未就绪；请检查 ${LOG_FILE}。"
+    return 1
+  fi
+  wait_for_backend_stability || return 1
+  if [ ! -f "$AUTH_TOKEN_FILE" ]; then
+    report_error "DeepSeek Harness 未生成统一网关所需的浏览器认证令牌。"
+    return 1
+  fi
+
+  rm -f -- "$SOCKET_PATH"
+  log_message "Starting authenticated gateway proxy."
+  nohup "$NODE_BIN" "$PROXY_ENTRY" "$SOCKET_PATH" "$GATEWAY_PREFIX" "127.0.0.1:${PORT}" "$GATEWAY_COMPAT_PATH" "$DSH_PROFILES_ROOT" "$AUTH_TOKEN_FILE" "$DSH_PID" >>"$LOG_FILE" 2>&1 &
+  proxy_pid=$!
+  printf '%s\n' "$proxy_pid" >"$PROXY_PID_FILE"
+
+  waited=0
+  while [ "$waited" -lt 10 ]; do
+    if owned_process_running "$PROXY_PID_FILE" "$PROXY_ENTRY" && [ -S "$SOCKET_PATH" ] && owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
+      if "$NODE_BIN" "$BACKEND_PROBE" "$PORT" 500 >/dev/null 2>&1; then
+        log_message "DeepSeek Harness and gateway proxy are ready."
+        disarm_startup_cleanup
+        return 0
+      fi
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  report_error "统一网关代理未能创建 ${SOCKET_PATH}。"
+  return 1
+}
+
+stop_service() {
+  stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
+  rm -f -- "$SOCKET_PATH"
+  stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
+  rm -f -- "$PORT_FILE" "$AUTH_TOKEN_FILE"
+  log_message "DeepSeek Harness stopped."
+  return 0
+}
+
+case ${1:-} in
+  start) start_service ;;
+  stop) stop_service ;;
+  status)
+    result=0
+    service_status || result=$?
+    if [ "$result" -eq 1 ]; then
+      report_error "DeepSeek Harness 处于不完整运行状态。"
+    fi
+    exit "$result"
+    ;;
+  restart)
+    stop_service
+    start_service
+    ;;
+  *)
+    report_error "不支持的操作：${1:-<empty>}"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,17 @@
+appname                    = deepseek-harness
+version                    = 0.0.18
+display_name               = DeepSeek Harness
+desc                       = DeepSeek 官方 Agent Harness 的 fnOS 安全封装；仅通过统一网关向管理员开放，运行时由锁定的官方源码直接构建。
+platform                   = x86
+source                     = thirdparty
+maintainer                 = DeepSeek
+maintainer_url             = https://github.com/deepseek-ai/deepseek-harness
+distributor                = 为屿
+os_min_version             = 1.2.0401
+micro_app                  = true
+desktop_uidir              = ui
+desktop_applaunchname      = deepseek-harness.main
+install_dep_apps           = nodejs_v24
+ctl_stop                   = true
+disable_authorization_path = false
+changelog                  = 上游基线升级至 DeepSeek Harness 0.2.1-rc.2；四个锁定源码补丁在新基线上重做并通过顺序应用校验；pnpm 升至 11.28.5。

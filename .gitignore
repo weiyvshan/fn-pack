@@ -1,0 +1,28 @@
+# Workspace scratch and local build caches
+/.tmp/
+/build/*.fpk
+
+# Archived hand-deployed instances hold runtime keys and private backups;
+# archived FPK bodies are superseded releases. Neither belongs in history.
+/archive/*/deploy-*/
+/archive/**/*.fpk
+**/node_modules/
+**/.cache/
+**/coverage/
+**/.pytest_cache/
+**/__pycache__/
+**/*.tsbuildinfo
+**/*.py[cod]
+
+# Local environment files; keep shareable examples
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Editor and operating-system residue
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

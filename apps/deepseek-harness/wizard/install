@@ -1,0 +1,38 @@
+[
+  {
+    "stepTitle": "DeepSeek Harness 配置",
+    "items": [
+      {
+        "type": "password",
+        "field": "wizard_deepseek_api_key",
+        "label": "DeepSeek API Key（可选）",
+        "initValue": "",
+        "placeholder": "sk-xxxxxxxxxxxxxxxx",
+        "pattern": "^$|^sk-[A-Za-z0-9_-]{8,256}$",
+        "tip": "留空可稍后在应用内设置。密钥仅写入应用私有数据目录，不写入日志。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_proxy_host",
+        "label": "HTTP 代理主机（可选）",
+        "initValue": "",
+        "placeholder": "192.168.1.2",
+        "pattern": "^$|^[A-Za-z0-9.-]{1,253}$",
+        "tip": "只填写主机名或 IPv4 地址，不包含协议、端口和凭据。代理在另一台电脑上时请填写其局域网 IP；127.0.0.1 仅指本 NAS。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_proxy_port",
+        "label": "HTTP 代理端口（可选）",
+        "initValue": "",
+        "placeholder": "7890",
+        "pattern": "^$|^[0-9]{1,5}$",
+        "tip": "需与代理主机同时填写，生命周期脚本会再次验证 1–65535 范围。"
+      },
+      {
+        "type": "tips",
+        "helpText": "应用仅通过 fnOS 统一网关访问，且代理会再次校验管理员身份；不会开放局域网直连端口。"
+      }
+    ]
+  }
+]

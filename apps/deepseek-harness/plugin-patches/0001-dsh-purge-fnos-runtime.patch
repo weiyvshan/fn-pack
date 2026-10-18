@@ -1,0 +1,96 @@
+diff --git a/client.js b/client.js
+index a480f77..48a6c5e 100644
+--- a/client.js
++++ b/client.js
+@@ -817,6 +817,11 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
+ 				.then((r) => r.json())
+ 				.then((d) => {
+ 					if (!d.ok) throw new Error(d.error || "restart failed");
++					if (d.manual_restart) {
++						setNotice({ kind: "ok", text: d.note || t("restart.confirm") });
++						setBusy(false);
++						return;
++					}
+ 					waitForRestart(setNotice, setBusy, t);
+ 				})
+ 				.catch((e) => {
+diff --git a/lib/core.js b/lib/core.js
+index 5f28bbb..4a30a3d 100644
+--- a/lib/core.js
++++ b/lib/core.js
+@@ -141,6 +141,18 @@ function isAiBase(p) {
+   return p && isDir(path.join(p, "dsh-agent-instructions", "lib"));
+ }
+ 
++export function isFnosRuntime(env = process.env) {
++  const appDest = String(env.TRIM_APPDEST || "").trim();
++  const pkgVar = String(env.TRIM_PKGVAR || "").trim();
++  return path.isAbsolute(appDest) && path.isAbsolute(pkgVar);
++}
++
++function findFnosAiBase(env = process.env) {
++  if (!isFnosRuntime(env)) return null;
++  const candidate = path.join(env.TRIM_APPDEST.trim(), "server", "node_modules", "@deepseek-ai");
++  return isAiBase(candidate) ? path.normalize(candidate) : null;
++}
++
+ /** npm 全局 bin 在 Windows 落在 prefix，在 macOS/Linux 落在 prefix/bin。 */
+ export function dirHasDshLauncher(dir) {
+   if (!dir || !isDir(dir)) return false;
+@@ -1122,6 +1134,7 @@ export function findShimDir() {
+  * Desktop sealed host-commands/<profile>/bin is scrub-only (issue #9) — never inject / never write bak there.
+  */
+ export function listShimDirsForPatch() {
++  if (isFnosRuntime()) return [];
+   return collectDirs([
+     findShimDir(),
+     ...listDesktopCommandRuntimeDirs(),
+@@ -1162,6 +1175,9 @@ export function findAiBase() {
+       if (isAiBase(p)) return p;
+     }
+ 
++    const fnosBase = findFnosAiBase();
++    if (fnosBase) return fnosBase;
++
+     const desktopBase = findDesktopAiBase();
+     if (desktopBase) return desktopBase;
+ 
+@@ -3187,6 +3203,7 @@ async function stripWinCmdShim(fp, text) {
+ 
+ export async function patchShim(shimDir) {
+   const result = {};
++  if (isFnosRuntime()) return { skipped_fnos_managed: true };
+   if (!shimDir) return { error: "no_shim_dir" };
+   // Hard guard: never inject / never write bak into Desktop sealed bins (issue #9).
+   if (isDesktopCommandRuntimeDir(shimDir)) {
+diff --git a/lib/index.js b/lib/index.js
+index bf033be..b7a3c8f 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -835,6 +835,14 @@ function installWebServer(ctx, cfg) {
+             return;
+           }
+           try {
++            if (core.isFnosRuntime()) {
++              sendJson(response, 200, {
++                ok: true,
++                manual_restart: true,
++                note: "补丁已应用；请在飞牛应用中心停用并重新启用 DeepSeek Harness。",
++              });
++              return;
++            }
+             scheduleWebRestart(request);
+             sendJson(response, 200, { ok: true, note: "正在重启 dsh web…" });
+           } catch (e) {
+diff --git a/package.json b/package.json
+index 0a3f405..1c64b80 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "dsh-purge",
+-  "version": "1.3.5",
++  "version": "1.3.5-fnos.2",
+   "description": "DeepSeek Harness 破甲：所有模型都可破甲，不同模型可换不同提示词；默认提示词面向国模「小码酱」。Jailbreak for every model. 求 Star ⭐",
+   "type": "module",
+   "main": "lib/index.js",

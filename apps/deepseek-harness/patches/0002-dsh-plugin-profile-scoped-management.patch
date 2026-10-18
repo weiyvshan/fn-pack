@@ -1,0 +1,489 @@
+diff --git a/packages/boot/plugin-manager/src/operations.ts b/packages/boot/plugin-manager/src/operations.ts
+index b9a36d6083..ebf35baeff 100644
+--- a/packages/boot/plugin-manager/src/operations.ts
++++ b/packages/boot/plugin-manager/src/operations.ts
+@@ -1,9 +1,10 @@
+ /** Shared profile package operations used by dsh plugin and the running manager. */
+ import { once } from 'node:events'
+-import { existsSync, readFileSync } from 'node:fs'
+-import { mkdir, mkdtemp, open, rm } from 'node:fs/promises'
+-import { join, resolve } from 'node:path'
++import { existsSync, lstatSync, readFileSync } from 'node:fs'
++import { mkdir, mkdtemp, open, rm, type FileHandle } from 'node:fs/promises'
++import { join, relative, resolve } from 'node:path'
+ import { execa } from 'execa'
++import { parse } from 'yaml'
+ import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+ import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+ import {
+@@ -54,6 +55,23 @@ export interface PackageOperationOptions {
+   lookupTimeoutMs?: number
+ }
+ 
++/** Full on-disk log plus the bounded output tail shared by one logical operation. */
++interface PackageOperationOutputState {
++  log: FileHandle
++  logPath: string
++  output: Buffer
++  truncated: boolean
++}
++
++/** Create the private log sink for one top-level profile operation. */
++async function createPackageOperationOutputState(dir: string): Promise<PackageOperationOutputState> {
++  const logRoot = join(dir, '.plugin-manager', 'logs')
++  await mkdir(logRoot, { recursive: true, mode: 0o700 })
++  const logDir = await mkdtemp(join(logRoot, 'operation-'))
++  const logPath = join(logDir, 'pnpm.log')
++  return { log: await open(logPath, 'wx', 0o600), logPath, output: Buffer.alloc(0), truncated: false }
++}
++
+ /** Resolve relative package specs against the caller's directory.
+  * @param argument One pnpm argument.
+  * @param cwd Invocation directory, never the profile directory.
+@@ -239,6 +257,55 @@ async function activeRecordedRun(dir: string): Promise<string | undefined> {
+   return undefined
+ }
+ 
++/** fnOS launcher marker: package operations use a store owned by the selected profile. */
++const FNOS_PLUGIN_POLICY_ENV = 'DSH_FNOS_PLUGIN_POLICY'
++
++/** Store relationship recorded by pnpm for one profile module tree. */
++export type ProfilePnpmStoreState = 'absent' | 'matching' | 'mismatched'
++
++/** Read whether pnpm's module tree uses the requested profile-local store. */
++export function profilePnpmStoreState(dir: string, expectedStore: string): ProfilePnpmStoreState {
++  const modulesDir = join(dir, 'node_modules')
++  let modulesStat
++  try { modulesStat = lstatSync(modulesDir) } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
++    throw error
++  }
++  if (modulesStat.isSymbolicLink() || !modulesStat.isDirectory()) {
++    throw new Error(`dsh: profile node_modules must be a directory: ${modulesDir}`)
++  }
++  const modulesPath = join(modulesDir, '.modules.yaml')
++  let modulesFile
++  try { modulesFile = lstatSync(modulesPath) } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
++    throw error
++  }
++  if (modulesFile.isSymbolicLink() || !modulesFile.isFile()) {
++    throw new Error(`dsh: profile node_modules/.modules.yaml must be a regular file: ${modulesPath}`)
++  }
++  let document: unknown
++  try { document = parse(readFileSync(modulesPath, 'utf8')) } catch (error) {
++    throw new Error(`dsh: invalid profile node_modules/.modules.yaml: ${String(error)}`, { cause: error })
++  }
++  if (typeof document !== 'object' || document === null || Array.isArray(document)) {
++    throw new Error('dsh: profile node_modules/.modules.yaml root must be a mapping')
++  }
++  const storeDir = (document as Record<string, unknown>).storeDir
++  if (typeof storeDir !== 'string' || storeDir === '') {
++    throw new Error('dsh: profile node_modules/.modules.yaml storeDir must be a non-empty string')
++  }
++  const expected = resolve(expectedStore)
++  const recorded = resolve(storeDir)
++  if (recorded === expected) return 'matching'
++  return /^v\d+$/.test(relative(expected, recorded)) ? 'matching' : 'mismatched'
++}
++
++/** Whether one pnpm invocation is observational and does not need store migration. */
++function profilePnpmCommandIsReadOnly(args: readonly string[]): boolean {
++  const command = args.find(argument => !argument.startsWith('-'))
++  return command === undefined || command === 'list' || command === 'ls'
++}
++
+ /** pnpm can install plugins through any direct-dependency field. */
+ function directDependencies(manifest: ProfileManifest): Record<string, string> {
+   const extra = manifest as ProfileManifest & { devDependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }
+@@ -284,18 +351,32 @@ function bundleComponentManifests(manifest: ProfileManifest, dir: string, anchor
+  */
+ export async function runProfilePnpm(
+   context: PackageOperationContext, args: readonly string[], options: PackageOperationOptions,
++): Promise<PackageResult> {
++  return runProfilePnpmInternal(context, args, options, false)
++}
++
++/** Execute one profile operation, optionally bypassing the fnOS store preflight for that preflight itself. */
++async function runProfilePnpmInternal(
++  context: PackageOperationContext, args: readonly string[], options: PackageOperationOptions,
++  skipFnosStoreMigration: boolean, sharedOutput?: PackageOperationOutputState,
+ ): Promise<PackageResult> {
+   const dir = context.dir ?? resolveProfileDir(context.profile, context.home)
+   // Before any profile file is read: a recorded run that is still active may be rewriting them.
+   const active = await activeRecordedRun(dir)
+-  const logRoot = join(dir, '.plugin-manager', 'logs')
+-  await mkdir(logRoot, { recursive: true, mode: 0o700 })
+-  const logDir = await mkdtemp(join(logRoot, 'operation-'))
+-  const logPath = join(logDir, 'pnpm.log')
+-  await using log = await open(logPath, 'wx', 0o600)
++  // The fnOS store preflight must settle before the operation log is opened so an
++  // invalid profile store recording fails the operation without leaving a run log.
++  const fnosStore = process.env[FNOS_PLUGIN_POLICY_ENV] === '1' ? join(dir, '.pnpm-store') : undefined
++  const migrateFnosStore = !skipFnosStoreMigration && fnosStore !== undefined
++    && !profilePnpmCommandIsReadOnly(args) && profilePnpmStoreState(dir, fnosStore) === 'mismatched'
++  const ownsOutput = sharedOutput === undefined
++  const outputState = sharedOutput ?? await createPackageOperationOutputState(dir)
++  const { log, logPath } = outputState
++  const closeLog = async (): Promise<void> => {
++    if (ownsOutput) await log.close()
++  }
+   if (active !== undefined) {
+     await log.write(active)
+-    await log.close()
++    await closeLog()
+     options.onOutput?.(active, 'stderr')
+     const bytes = Buffer.from(active)
+     return { exitCode: 1, output: bytes.subarray(Math.max(0, bytes.length - options.outputBytes)).toString('utf8'), truncated: bytes.length > options.outputBytes, logPath }
+@@ -304,16 +385,18 @@ export async function runProfilePnpm(
+   const savedFiles = ['package.json', 'pnpm-lock.yaml'].map(name => ({ path: join(dir, name), text: optionalFile(join(dir, name)) }))
+   const beforeDependencies = directDependencies(before)
+   const installedBefore = new Map(Object.keys(beforeDependencies).map(name => [name, optionalFile(join(dir, 'node_modules', name, 'package.json'))]))
+-  let output = Buffer.alloc(0)
+-  let truncated = false
+   const append = (bytes: Buffer): void => {
+-    output = Buffer.concat([output, bytes])
+-    if (output.length > options.outputBytes) {
+-      truncated = true
+-      output = output.subarray(output.length - options.outputBytes)
++    outputState.output = Buffer.concat([outputState.output, bytes])
++    if (outputState.output.length > options.outputBytes) {
++      outputState.truncated = true
++      outputState.output = outputState.output.subarray(outputState.output.length - options.outputBytes)
+     }
+   }
+-  const environment = { ...(options.execution === 'cli' ? process.env : scrubbedParentEnv()), ...options.env }
++  const environment = {
++    ...(options.execution === 'cli' ? process.env : scrubbedParentEnv()),
++    ...options.env,
++    ...fnosStore === undefined ? {} : { DSH_PLUGIN_STORE_DIR: fnosStore, pnpm_config_store_dir: fnosStore },
++  }
+   const restore = async (): Promise<void> => {
+     for (const file of savedFiles) {
+       if (file.text === undefined) await rm(file.path, { force: true })
+@@ -327,8 +410,11 @@ export async function runProfilePnpm(
+     await log.write(diagnostic)
+     options.onOutput?.(diagnostic, 'stderr')
+     append(Buffer.from(diagnostic))
+-    await log.close()
+-    return { exitCode: 1, output: output.toString('utf8'), truncated, logPath, incompatible }
++    await closeLog()
++    return {
++      exitCode: 1, output: outputState.output.toString('utf8'),
++      truncated: outputState.truncated, logPath, incompatible,
++    }
+   }
+   // An install command names the packages it adds, so their manifests are read and checked before
+   // pnpm runs: an incompatible version is never installed, and the one already in use keeps working.
+@@ -350,6 +436,47 @@ export async function runProfilePnpm(
+     } catch (error) { void error; continue }
+   }
+   if (preflight.length > 0) return await rejected(preflight, 'nothing was installed')
++  if (migrateFnosStore && fnosStore !== undefined) {
++    const notice = `dsh: relinking profile ${context.profile} to its private pnpm store before plugin changes\n`
++    await log.write(notice)
++    options.onOutput?.(notice, 'stderr')
++    append(Buffer.from(notice))
++    let migrated: PackageResult
++    try {
++      migrated = await runProfilePnpmInternal(
++        context, ['install', '--force'], { ...options, activateNewBundles: false }, true, outputState,
++      )
++    } catch (error) {
++      await closeLog()
++      throw error
++    }
++    let state: ProfilePnpmStoreState
++    try {
++      state = migrated.exitCode === 0 && !migrated.timedOut
++        ? profilePnpmStoreState(dir, fnosStore)
++        : 'mismatched'
++    } catch (error) {
++      await closeLog()
++      throw error
++    }
++    if (migrated.exitCode !== 0 || migrated.timedOut || state !== 'matching') {
++      await restore()
++      const diagnostic = migrated.timedOut
++        ? 'dsh: pnpm store migration timed out; plugin command was not run\n'
++        : migrated.exitCode !== 0
++          ? `dsh: pnpm store migration failed in profile directory ${dir}; plugin command was not run\n`
++          : `dsh: pnpm store migration did not relink profile directory ${dir}; plugin command was not run\n`
++      await log.write(diagnostic)
++      options.onOutput?.(diagnostic, 'stderr')
++      append(Buffer.from(diagnostic))
++      await closeLog()
++      return {
++        exitCode: migrated.exitCode === 0 ? 1 : migrated.exitCode,
++        output: outputState.output.toString('utf8'), truncated: outputState.truncated, logPath,
++        ...migrated.timedOut ? { timedOut: true } : {},
++      }
++    }
++  }
+   const cancellation = new AbortController()
+   // A service run captures output, so execa terminates the tree it leads when the
+   // run is killed: a lifecycle script outlives the pnpm process that started it.
+@@ -366,6 +493,7 @@ export async function runProfilePnpm(
+   // Listened for before the record is written, so an exit during that write is not missed.
+   const exited = once(child.nodeChildProcess, 'exit').catch(() => undefined)
+   let writes = Promise.resolve()
++  let runOutputObserved = false
+   /** `settled` records that the process outcome is known; `stalled` that the silence bound stopped the run. */
+   const control = { settled: false, stalled: false }
+   /** Set once this call cuts the reading short itself, so the close it causes is not read as a run failure. */
+@@ -388,6 +516,7 @@ export async function runProfilePnpm(
+       for await (const chunk of stream) {
+         armIdle()
+         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
++        if (bytes.length > 0) runOutputObserved = true
+         writes = writes.then(async () => { await log.write(bytes) })
+         await writes
+         options.onOutput?.(bytes.toString('utf8'), kind)
+@@ -439,6 +568,7 @@ export async function runProfilePnpm(
+       child.stdout?.destroy()
+       child.stderr?.destroy()
+       const notice = 'dsh: pnpm output was cut short after its process exited\n'
++      runOutputObserved = true
+       await log.write(notice)
+       // A failure from before the cut is the run's own and replaces the notice a
+       // caller would otherwise read; a rejection the cut itself causes is its end.
+@@ -452,15 +582,15 @@ export async function runProfilePnpm(
+     exitCode = result.exitCode ?? (result.code === 'ENOENT' ? 127 : 1)
+     if (control.stalled) {
+       const notice = `dsh: pnpm printed nothing for ${String(options.idleTimeoutMs)}ms and was terminated\n`
++      runOutputObserved = true
+       await log.write(notice)
+       options.onOutput?.(notice, 'stderr')
+       append(Buffer.from(notice))
+     }
+-    if (result.failed && output.length === 0) {
++    if (result.failed && !runOutputObserved) {
+       const diagnostic = result.shortMessage ?? 'pnpm failed'
+       await log.write(diagnostic)
+-      truncated = Buffer.byteLength(diagnostic) > options.outputBytes
+-      output = Buffer.from(diagnostic).subarray(0, options.outputBytes)
++      append(Buffer.from(diagnostic))
+     }
+     // A terminated run's exit status says nothing about what it wrote, so it never reconciles the selection.
+     if (exitCode === 0 && !control.stalled) {
+@@ -528,10 +658,10 @@ export async function runProfilePnpm(
+     clearTimeout(idleTimer)
+     // This process saw the run end, so no successor has to wait for it.
+     await rm(runRecordPath(dir), { force: true })
+-    await log.close()
++    await closeLog()
+   }
+   return {
+-    exitCode, output: output.toString('utf8'), truncated, logPath,
++    exitCode, output: outputState.output.toString('utf8'), truncated: outputState.truncated, logPath,
+     ...control.stalled ? { timedOut: true } : {}, ...incompatible.length > 0 ? { incompatible } : {},
+   }
+ }
+diff --git a/packages/boot/plugin-manager/tests/operations.spec.ts b/packages/boot/plugin-manager/tests/operations.spec.ts
+index 014c314e28..337087ffab 100644
+--- a/packages/boot/plugin-manager/tests/operations.spec.ts
++++ b/packages/boot/plugin-manager/tests/operations.spec.ts
+@@ -1,12 +1,14 @@
+ /** The CLI and manager share package reconciliation, path anchoring and diagnostics. */
+ import { EventEmitter } from 'node:events'
+-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
++import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
+ import { join, resolve } from 'node:path'
+ import { tmpdir } from 'node:os'
+ import { PassThrough } from 'node:stream'
+ import { expect, it, onTestFinished, vi } from 'vitest'
+ import { getDshRuntimeVersion, initProfile, readProfileManifest } from '@deepseek-ai/dsh-app-boot'
+-import { anchorPathSpec, readProfileRegistry, runPluginCommand, runProfilePnpm, viewProfilePackage } from '../src/operations.ts'
++import {
++  anchorPathSpec, profilePnpmStoreState, readProfileRegistry, runPluginCommand, runProfilePnpm, viewProfilePackage,
++} from '../src/operations.ts'
+ 
+ /** What execa resolves for a run that settled, including the buffered output the pre-install lookup is read for. */
+ interface FakeOutcome {
+@@ -89,6 +91,19 @@ function fixture() {
+   return { home, dir, context: { home, profile: 'test', installAnchor, cwd: home }, pnpm }
+ }
+ 
++/** Open Linux descriptors that still point into one fixture tree. */
++function openDescriptorsBelow(root: string): string[] {
++  const descriptorRoot = '/proc/self/fd'
++  if (!existsSync(descriptorRoot)) return []
++  const prefix = `${resolve(root)}/`
++  return readdirSync(descriptorRoot).flatMap((descriptor) => {
++    try {
++      const target = readlinkSync(join(descriptorRoot, descriptor)).replace(/ \(deleted\)$/, '')
++      return target.startsWith(prefix) ? [target] : []
++    } catch { return [] }
++  })
++}
++
+ function result(
+   exitCode: number | undefined, output: string, mutate: () => void = () => {},
+   details: { code?: string; shortMessage?: string } = {},
+@@ -275,6 +290,166 @@ it('runs an invocation that names no command without a registry lookup', async (
+   expect(pnpm.views).toEqual([])
+ })
+ 
++it('relinks an fnOS profile to its private store before a mutation', async () => {
++  const { dir, context } = fixture()
++  const modulesPath = join(dir, 'node_modules', '.modules.yaml')
++  const expectedStore = join(dir, '.pnpm-store')
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(modulesPath, `storeDir: ${JSON.stringify(join(tmpdir(), 'old-store', 'v11'))}\n`)
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++  command.run.mockImplementation((...call: unknown[]) => {
++    const argv = call[1] as readonly string[]
++    if (argv.includes('--force')) {
++      return result(0, 'migrated\n', () => {
++        writeFileSync(modulesPath, `storeDir: ${JSON.stringify(join(expectedStore, 'v11'))}\n`)
++      })
++    }
++    return result(0, 'updated\n')
++  })
++
++  const outcome = await runProfilePnpm(context, ['update'], { execution: 'service', outputBytes: 8192 })
++
++  expect(outcome).toMatchObject({ exitCode: 0 })
++  expect(outcome.output).toContain('relinking profile test')
++  expect(command.run).toHaveBeenCalledTimes(2)
++  expect(command.run.mock.calls[0]?.[1]).toEqual(['install', '--force'])
++  expect(command.run.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
++    killDescendants: true, buffer: false, stdin: 'ignore',
++  }))
++  expect(command.run.mock.calls[1]?.[1]).toEqual(['update'])
++  for (const call of command.run.mock.calls) {
++    const environment = (call[2] as { env: Record<string, string> }).env
++    expect(environment.DSH_PLUGIN_STORE_DIR).toBe(expectedStore)
++    expect(environment.pnpm_config_store_dir).toBe(expectedStore)
++  }
++  expect(profilePnpmStoreState(dir, expectedStore)).toBe('matching')
++})
++
++it('rejects invalid fnOS store metadata before opening an operation log', async () => {
++  const { home, dir, context } = fixture()
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(join(dir, 'node_modules', '.modules.yaml'), 'storeDir: [\n')
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++
++  await expect(runProfilePnpm(context, ['update'], { execution: 'service', outputBytes: 8192 }))
++    .rejects.toThrow()
++  expect(existsSync(join(dir, '.plugin-manager', 'logs'))).toBe(false)
++  expect(openDescriptorsBelow(home)).toEqual([])
++})
++
++it('does not relink an fnOS profile whose private store already matches', async () => {
++  const { dir, context } = fixture()
++  const expectedStore = join(dir, '.pnpm-store')
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(
++    join(dir, 'node_modules', '.modules.yaml'),
++    `storeDir: ${JSON.stringify(join(expectedStore, 'v11'))}\n`,
++  )
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++
++  expect(await runProfilePnpm(context, ['update'], { execution: 'service', outputBytes: 8192 }))
++    .toMatchObject({ exitCode: 0 })
++  expect(command.run).toHaveBeenCalledTimes(1)
++  expect(command.run.mock.calls[0]?.[1]).toEqual(['update'])
++})
++
++it('does not relink an fnOS profile for a read-only list', async () => {
++  const { dir, context } = fixture()
++  const expectedStore = join(dir, '.pnpm-store')
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(
++    join(dir, 'node_modules', '.modules.yaml'),
++    `storeDir: ${JSON.stringify(join(tmpdir(), 'old-store', 'v11'))}\n`,
++  )
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++
++  expect(await runProfilePnpm(context, ['list'], { execution: 'service', outputBytes: 8192 }))
++    .toMatchObject({ exitCode: 0 })
++  expect(command.run).toHaveBeenCalledTimes(1)
++  expect(command.run.mock.calls[0]?.[1]).toEqual(['list'])
++  const environment = (command.run.mock.calls[0]?.[2] as { env: Record<string, string> }).env
++  expect(environment.DSH_PLUGIN_STORE_DIR).toBe(expectedStore)
++  expect(profilePnpmStoreState(dir, expectedStore)).toBe('mismatched')
++})
++
++it('stops before the requested fnOS mutation when store migration fails', async () => {
++  const { dir, context } = fixture()
++  const modulesPath = join(dir, 'node_modules', '.modules.yaml')
++  const manifestPath = join(dir, 'package.json')
++  const lockPath = join(dir, 'pnpm-lock.yaml')
++  const manifestBefore = readFileSync(manifestPath, 'utf8')
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(modulesPath, `storeDir: ${JSON.stringify(join(tmpdir(), 'old-store', 'v11'))}\n`)
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++  const migrationOutput = `migration-start\n${'x'.repeat(256)}\nmigration-end\n`
++  command.run.mockImplementation(() => result(1, migrationOutput, () => {
++    writeFileSync(manifestPath, '{"changed":true}\n')
++    writeFileSync(lockPath, 'changed-lock\n')
++  }))
++
++  const outcome = await runProfilePnpm(context, ['update'], { execution: 'service', outputBytes: 192 })
++
++  expect(outcome).toMatchObject({ exitCode: 1, truncated: true })
++  expect(outcome.output).toContain('pnpm store migration failed')
++  expect(outcome.output).not.toContain('migration-start')
++  const completeLog = readFileSync(outcome.logPath, 'utf8')
++  expect(completeLog).toContain('migration-start')
++  expect(completeLog).toContain('migration-end')
++  expect(completeLog).toContain('pnpm store migration failed')
++  expect(command.run).toHaveBeenCalledTimes(1)
++  expect(command.run.mock.calls[0]?.[1]).toEqual(['install', '--force'])
++  expect(readFileSync(manifestPath, 'utf8')).toBe(manifestBefore)
++  expect(existsSync(lockPath)).toBe(false)
++})
++
++it('terminates an idle fnOS store migration as a process tree before returning', async () => {
++  const { dir, context } = fixture()
++  const expectedStore = join(dir, '.pnpm-store')
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(
++    join(dir, 'node_modules', '.modules.yaml'),
++    `storeDir: ${JSON.stringify(join(tmpdir(), 'old-store', 'v11'))}\n`,
++  )
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++  command.run.mockImplementationOnce(() => silentChild('migrating\n'))
++
++  const outcome = await runProfilePnpm(context, ['update'], {
++    execution: 'service', outputBytes: 8192, idleTimeoutMs: 20,
++  })
++
++  expect(outcome).toMatchObject({ exitCode: 1, timedOut: true })
++  expect(outcome.output).toContain('pnpm store migration timed out')
++  expect(command.run).toHaveBeenCalledTimes(1)
++  expect(command.run.mock.calls[0]?.[1]).toEqual(['install', '--force'])
++  expect(command.run.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
++    killDescendants: true, buffer: false, stdin: 'ignore',
++  }))
++  expect(profilePnpmStoreState(dir, expectedStore)).toBe('mismatched')
++})
++
++it('closes the operation log when migrated fnOS store metadata is invalid', async () => {
++  const { home, dir, context } = fixture()
++  const modulesPath = join(dir, 'node_modules', '.modules.yaml')
++  mkdirSync(join(dir, 'node_modules'), { recursive: true })
++  writeFileSync(modulesPath, `storeDir: ${JSON.stringify(join(tmpdir(), 'old-store', 'v11'))}\n`)
++  vi.stubEnv('DSH_FNOS_PLUGIN_POLICY', '1')
++  onTestFinished(() => { vi.unstubAllEnvs() })
++  command.run.mockImplementationOnce(() => result(0, 'migrated\n', () => {
++    writeFileSync(modulesPath, 'storeDir: [\n')
++  }))
++
++  await expect(runProfilePnpm(context, ['update'], { execution: 'service', outputBytes: 8192 }))
++    .rejects.toThrow()
++  expect(command.run).toHaveBeenCalledTimes(1)
++  expect(openDescriptorsBelow(home)).toEqual([])
++})
++
+ it('installs an incompatible path spec the profile exempts', async () => {
+   const { home, dir, context, pnpm } = fixture()
+   writePathSpec(home, '999.0.0')

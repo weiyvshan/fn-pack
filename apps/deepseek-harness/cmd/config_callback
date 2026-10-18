@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "${SCRIPT_DIR}/config-common"
+
+: "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+: "${TRIM_PKGHOME:?TRIM_PKGHOME is required}"
+: "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+DSH_HOME=$(package_dsh_home "$TRIM_PKGHOME")
+if ! ensure_dsh_home "$TRIM_PKGHOME" "${TRIM_APPDEST}/server"; then
+  config_error "无法初始化 DeepSeek Harness 数据目录；配置未保存。"
+  exit 1
+fi
+if ! ensure_shell_state "$TRIM_PKGVAR"; then
+  config_error "无法初始化模型 shell 持久化目录；配置未保存。"
+  exit 1
+fi
+
+api_key=${config_deepseek_api_key:-}
+clear_api=${config_clear_api_key:-false}
+proxy_host=${config_proxy_host:-}
+proxy_port=${config_proxy_port:-}
+clear_proxy=${config_clear_proxy:-false}
+
+if is_true "$clear_api"; then
+  rm -f -- "${DSH_HOME}/.env"
+elif [ -n "$api_key" ]; then
+  if ! write_api_key "$DSH_HOME" "$api_key"; then
+    config_error "DeepSeek API Key 格式无效；配置未保存。"
+    exit 1
+  fi
+fi
+
+if is_true "$clear_proxy"; then
+  rm -f -- "${DSH_HOME}/proxy.url"
+elif [ -n "$proxy_host" ] || [ -n "$proxy_port" ]; then
+  if [ -z "$proxy_host" ] || [ -z "$proxy_port" ] || ! write_proxy "$DSH_HOME" "$proxy_host" "$proxy_port"; then
+    config_error "HTTP 代理必须同时提供有效主机和 1–65535 端口；配置未保存。"
+    exit 1
+  fi
+fi
+
+if ! mark_wizard_config_initialized "$DSH_HOME"; then
+  config_error "无法记录配置初始化状态；配置未完整保存。"
+  exit 1
+fi
+
+printf '%s\n' "Configuration saved; restart DeepSeek Harness to apply changes."
+exit 0

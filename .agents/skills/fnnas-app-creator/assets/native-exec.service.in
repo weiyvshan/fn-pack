@@ -1,0 +1,22 @@
+[Unit]
+Description=@DESCRIPTION@
+After=network.target
+
+[Service]
+Type=exec
+User=@APP_USER@
+Group=@APP_GROUP@
+WorkingDirectory=@TARGET_PATH@
+EnvironmentFile=@ROOT_ENV_PATH@
+ExecStart=:@PYTHON_WORD@ -I -B @SERVER_WORD@
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@STATE_WORDS@
+
+[Install]
+WantedBy=multi-user.target

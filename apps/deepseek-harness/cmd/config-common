@@ -1,0 +1,386 @@
+#!/bin/sh
+
+config_error() {
+  message=$1
+  error_log=${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR:?TRIM_PKGVAR is required}/last-error.log}
+  printf '%s\n' "$message" >"$error_log" 2>/dev/null || true
+  printf '%s\n' "$message" >&2
+}
+
+canonical_package_home() {
+  package_home=${1:-}
+  [ -n "$package_home" ] || return 1
+  [ -d "$package_home" ] && [ ! -L "$package_home" ] || return 1
+  resolved_package_home=$(readlink -f -- "$package_home" 2>/dev/null || true)
+  case "$resolved_package_home" in
+    /*/@apphome/deepseek-harness) printf '%s\n' "$resolved_package_home" ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_package_home() {
+  canonical_package_home "$1" >/dev/null
+}
+
+ensure_package_home() {
+  package_home=${1:-${TRIM_PKGHOME:-}}
+  [ -n "$package_home" ] || return 1
+  [ ! -L "$package_home" ] || return 1
+  if [ ! -e "$package_home" ]; then
+    mkdir -p -- "$package_home" || return 1
+  fi
+  validate_package_home "$package_home"
+}
+
+package_dsh_home() {
+  package_home=${1:-${TRIM_PKGHOME:-}}
+  [ -n "$package_home" ] || return 1
+  printf '%s/.dsh\n' "$package_home"
+}
+
+shell_state_root() {
+  pkg_var=${1:-${TRIM_PKGVAR:-}}
+  [ -n "$pkg_var" ] || return 1
+  printf '%s/shell\n' "$pkg_var"
+}
+
+ensure_shell_state() {
+  pkg_var=$1
+  resolved_pkg_var=$(readlink -f -- "$pkg_var" 2>/dev/null || true)
+  case "$resolved_pkg_var" in
+    */@appdata/deepseek-harness) ;;
+    *) return 1 ;;
+  esac
+  [ "$resolved_pkg_var" = "$pkg_var" ] || return 1
+  [ -d "$resolved_pkg_var" ] && [ ! -L "$resolved_pkg_var" ] || return 1
+
+  shell_root=$(shell_state_root "$resolved_pkg_var") || return 1
+  for shell_path in "$shell_root" "$shell_root/state" "$shell_root/cache" "$shell_root/data"; do
+    [ ! -L "$shell_path" ] || return 1
+  done
+  umask 077
+  mkdir -p -- "$shell_root/state" "$shell_root/cache" "$shell_root/data" || return 1
+  [ -d "$shell_root" ] && [ ! -L "$shell_root" ] || return 1
+  [ -d "$shell_root/state" ] && [ ! -L "$shell_root/state" ] || return 1
+  [ -d "$shell_root/cache" ] && [ ! -L "$shell_root/cache" ] || return 1
+  [ -d "$shell_root/data" ] && [ ! -L "$shell_root/data" ] || return 1
+  chmod 700 "$shell_root" "$shell_root/state" "$shell_root/cache" "$shell_root/data" 2>/dev/null || true
+}
+
+remove_stale_runtime_links() {
+  dsh_root=$1
+  allowed_external_root=${2:-}
+  [ -n "$allowed_external_root" ] || return 0
+
+  resolved_allowed_external_root=$(readlink -f -- "$allowed_external_root" 2>/dev/null || true)
+  [ -d "$resolved_allowed_external_root" ] && [ ! -L "$resolved_allowed_external_root" ] || return 1
+  case "$resolved_allowed_external_root" in
+    */@appcenter/deepseek-harness/server) ;;
+    *) return 1 ;;
+  esac
+
+  profiles_root="${dsh_root}/profiles"
+  [ -d "$profiles_root" ] || return 0
+  find "$profiles_root" -type l -path '*/node_modules/*' -exec sh -c '
+    allowed=$1
+    shift
+    for link do
+      resolved=$(readlink -e -- "$link" 2>/dev/null || true)
+      [ -n "$resolved" ] && continue
+      normalized=$(readlink -m -- "$link" 2>/dev/null || true)
+      case "$normalized" in
+        "$allowed"|"$allowed"/*) rm -f -- "$link" || exit 1 ;;
+      esac
+    done
+  ' _ "$resolved_allowed_external_root" {} +
+}
+
+validate_dsh_tree() {
+  dsh_root=$1
+  allowed_external_root=${2:-}
+  [ -d "$dsh_root" ] && [ ! -L "$dsh_root" ] || return 1
+  resolved_dsh_root=$(readlink -f -- "$dsh_root" 2>/dev/null || true)
+  [ "$resolved_dsh_root" = "$dsh_root" ] || return 1
+
+  resolved_allowed_external_root=
+  if [ -n "$allowed_external_root" ]; then
+    resolved_allowed_external_root=$(readlink -f -- "$allowed_external_root" 2>/dev/null || true)
+    [ -d "$resolved_allowed_external_root" ] && [ ! -L "$resolved_allowed_external_root" ] || return 1
+    case "$resolved_allowed_external_root" in
+      */@appcenter/deepseek-harness/server) ;;
+      *) return 1 ;;
+    esac
+  fi
+
+  find "$dsh_root" -type l -exec sh -c '
+    root=$1
+    allowed=$2
+    shift 2
+    for link do
+      resolved=$(readlink -f -- "$link" 2>/dev/null || true)
+      case "$resolved" in
+        "$root"|"$root"/*) ;;
+        "$allowed"|"$allowed"/*) [ -n "$allowed" ] || exit 1 ;;
+        *) exit 1 ;;
+      esac
+    done
+  ' _ "$dsh_root" "$resolved_allowed_external_root" {} +
+}
+
+ensure_dsh_home() {
+  package_home=$1
+  allowed_external_root=${2:-}
+  ensure_package_home "$package_home" || return 1
+  dsh_home=$(package_dsh_home "$package_home") || return 1
+  [ ! -L "$dsh_home" ] || return 1
+  if [ ! -e "$dsh_home" ]; then
+    umask 077
+    mkdir -p -- "$dsh_home" || return 1
+  fi
+  remove_stale_runtime_links "$dsh_home" "$allowed_external_root" || return 1
+  validate_dsh_tree "$dsh_home" "$allowed_external_root" || return 1
+  mkdir -p -- "${dsh_home}/profiles/web" "${dsh_home}/logs" || return 1
+  validate_dsh_tree "$dsh_home" "$allowed_external_root"
+}
+
+is_true() {
+  case ${1:-} in
+    true|TRUE|True|1|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_api_key() {
+  value=${1:-}
+  [ -z "$value" ] && return 0
+  length=${#value}
+  [ "$length" -ge 11 ] && [ "$length" -le 259 ] || return 1
+  printf '%s' "$value" | grep -Eq '^sk-[A-Za-z0-9_-]+$'
+}
+
+validate_proxy_host() {
+  value=${1:-}
+  [ -n "$value" ] || return 1
+  [ ${#value} -le 253 ] || return 1
+  printf '%s' "$value" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$|^[A-Za-z0-9]$' || return 1
+  case "$value" in
+    *..*|.*|*.) return 1 ;;
+  esac
+  return 0
+}
+
+validate_proxy_port() {
+  value=${1:-}
+  printf '%s' "$value" | grep -Eq '^[0-9]{1,5}$' || return 1
+  [ "$value" -ge 1 ] 2>/dev/null && [ "$value" -le 65535 ] 2>/dev/null
+}
+
+process_identity_matches() {
+  pid=$1
+  expected_uid=$2
+  expected_marker=$3
+  proc_root=${4:-/proc}
+
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  case "$expected_uid" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+
+  status_file="${proc_root}/${pid}/status"
+  cmdline_file="${proc_root}/${pid}/cmdline"
+  [ -r "$status_file" ] && [ -r "$cmdline_file" ] || return 1
+  process_uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$status_file" | head -n 1)
+  [ "$process_uid" = "$expected_uid" ] || return 1
+  command_line=$(tr '\000' ' ' <"$cmdline_file" 2>/dev/null || true)
+  case "$command_line" in
+    *"$expected_marker"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+stop_verified_process() {
+  pid=$1
+  expected_uid=$2
+  expected_marker=$3
+  label=$4
+  proc_root=${5:-/proc}
+
+  process_identity_matches "$pid" "$expected_uid" "$expected_marker" "$proc_root" || return 0
+  printf '%s\n' "Stopping verified legacy ${label} process ${pid}."
+  kill -TERM "$pid" 2>/dev/null || return 1
+  waited=0
+  while process_identity_matches "$pid" "$expected_uid" "$expected_marker" "$proc_root" && [ "$waited" -lt 10 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if process_identity_matches "$pid" "$expected_uid" "$expected_marker" "$proc_root"; then
+    kill -KILL "$pid" 2>/dev/null || return 1
+    sleep 1
+  fi
+  ! process_identity_matches "$pid" "$expected_uid" "$expected_marker" "$proc_root"
+}
+
+cleanup_verified_legacy_processes() {
+  app_dest=$1
+  expected_uid=$2
+  proc_root=${3:-/proc}
+  resolved_app_dest=$(readlink -f "$app_dest" 2>/dev/null || true)
+
+  case "$resolved_app_dest" in
+    /*/@appcenter/deepseek-harness) ;;
+    *) return 1 ;;
+  esac
+  case "$expected_uid" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+  dsh_marker="${resolved_app_dest}/server/node_modules/@deepseek-ai/dsh/lib/bin.js web"
+  proxy_marker="${resolved_app_dest}/gateway-proxy.js ${resolved_app_dest}/app.sock /app/deepseek-harness "
+
+  for process_dir in "${proc_root}"/[0-9]*; do
+    [ -d "$process_dir" ] || continue
+    pid=${process_dir##*/}
+    if process_identity_matches "$pid" "$expected_uid" "$dsh_marker" "$proc_root"; then
+      stop_verified_process "$pid" "$expected_uid" "$dsh_marker" dsh "$proc_root" || return 1
+    elif process_identity_matches "$pid" "$expected_uid" "$proxy_marker" "$proc_root"; then
+      stop_verified_process "$pid" "$expected_uid" "$proxy_marker" proxy "$proc_root" || return 1
+    fi
+  done
+}
+
+atomic_write_line() {
+  path=$1
+  value=$2
+  directory=$(dirname "$path")
+  mkdir -p "$directory"
+  temporary="${path}.tmp.$$"
+  umask 077
+  if ! printf '%s\n' "$value" >"$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! mv -f -- "$temporary" "$path"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  chmod 600 "$path" 2>/dev/null || true
+}
+
+wizard_config_marker_path() {
+  dsh_home=$1
+  printf '%s/.fnos-wizard-config-initialized\n' "$dsh_home"
+}
+
+wizard_config_marker_status() {
+  dsh_home=$1
+  marker=$(wizard_config_marker_path "$dsh_home") || return 2
+  if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
+    return 1
+  fi
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 2
+  [ "$(sed -n '$=' "$marker")" = 1 ] || return 2
+  [ "$(sed -n '1p' "$marker")" = 'initialized-v1' ] || return 2
+}
+
+mark_wizard_config_initialized() {
+  dsh_home=$1
+  marker=$(wizard_config_marker_path "$dsh_home") || return 1
+  atomic_write_line "$marker" 'initialized-v1'
+}
+
+install_pnpm_launcher() {
+  app_dest=$1
+  pkg_var=$2
+  source_launcher="${app_dest}/pnpm-launcher"
+  pnpm_entry="${app_dest}/pnpm/bin/pnpm.cjs"
+  launcher_dir="${pkg_var}/bin"
+  launcher="${launcher_dir}/pnpm"
+  temporary="${launcher}.tmp.$$"
+
+  [ -f "$source_launcher" ] && [ ! -L "$source_launcher" ] || return 1
+  [ -f "$pnpm_entry" ] && [ ! -L "$pnpm_entry" ] || return 1
+  mkdir -p "$launcher_dir" || return 1
+  umask 077
+  if ! cp -- "$source_launcher" "$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! chmod 700 "$temporary" || ! mv -f -- "$temporary" "$launcher"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+}
+
+install_dsh_launcher() {
+  app_dest=$1
+  pkg_var=$2
+  source_launcher="${app_dest}/dsh-launcher"
+  dsh_entry="${app_dest}/server/node_modules/@deepseek-ai/dsh/lib/bin.js"
+  launcher_dir="${pkg_var}/bin"
+  launcher="${launcher_dir}/dsh"
+  temporary="${launcher}.tmp.$$"
+
+  [ -f "$source_launcher" ] && [ ! -L "$source_launcher" ] || return 1
+  [ -f "$dsh_entry" ] && [ ! -L "$dsh_entry" ] || return 1
+  mkdir -p "$launcher_dir" || return 1
+  umask 077
+  if ! cp -- "$source_launcher" "$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! chmod 700 "$temporary" || ! mv -f -- "$temporary" "$launcher"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+}
+
+prepare_landlock_launcher() {
+  app_dest=$1
+  launcher="${app_dest}/server/node_modules/@deepseek-ai/node-addon-system-linux-x64/bin/landlock-run"
+
+  [ -f "$launcher" ] && [ ! -L "$launcher" ] || return 1
+  chmod 0755 "$launcher" || return 1
+  [ -x "$launcher" ]
+}
+
+write_api_key() {
+  dsh_home=$1
+  key=$2
+  validate_api_key "$key" || return 1
+  atomic_write_line "${dsh_home}/.env" "DEEPSEEK_API_KEY=${key}"
+}
+
+write_proxy() {
+  dsh_home=$1
+  host=$2
+  port=$3
+  validate_proxy_host "$host" || return 1
+  validate_proxy_port "$port" || return 1
+  atomic_write_line "${dsh_home}/proxy.url" "http://${host}:${port}"
+}
+
+is_generated_loopback_profile() {
+  profile=$1
+  [ -f "$profile" ] && [ ! -L "$profile" ] || return 1
+  [ "$(sed -n '$=' "$profile")" = 4 ] || return 1
+  [ "$(sed -n '1p' "$profile")" = '- id: webserver' ] || return 1
+  [ "$(sed -n '2p' "$profile")" = '  config:' ] || return 1
+  [ "$(sed -n '3p' "$profile")" = '    host: "127.0.0.1"' ] || return 1
+  port_line=$(sed -n '4p' "$profile")
+  case "$port_line" in
+    '    port: '*) port=${port_line#'    port: '} ;;
+    *) return 1 ;;
+  esac
+  validate_proxy_port "$port"
+}
+
+remove_generated_loopback_profile() {
+  dsh_home=$1
+  profile="${dsh_home}/profiles/web/cordis.patch.yml"
+  if [ ! -e "$profile" ] && [ ! -L "$profile" ]; then
+    return 0
+  fi
+  is_generated_loopback_profile "$profile" || return 1
+  rm -f -- "$profile"
+}

@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+APP_NAME=deepseek-harness
+APP_DEST="/var/apps/${APP_NAME}/target"
+NODE_BIN=/var/apps/nodejs_v24/target/bin/node
+NODE_RUNTIME_BIN=${NODE_BIN%/node}
+case $0 in
+  */*) launcher_dir=${0%/*} ;;
+  *) launcher_dir=. ;;
+esac
+SCRIPT_DIR=$(CDPATH= cd -- "$launcher_dir" && pwd -P)
+PKG_VAR=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd -P)
+PKG_HOME=${TRIM_PKGHOME:-${PKG_VAR%/var}/home}
+DSH_ENTRY="${APP_DEST}/server/node_modules/@deepseek-ai/dsh/lib/bin.js"
+BUNDLED_SKILL_DIR="${APP_DEST}/builtin-skills"
+BUNDLED_MAINTENANCE_SKILL="${BUNDLED_SKILL_DIR}/dsh-maintenance/SKILL.md"
+BUNDLED_SKILL_CREATOR="${BUNDLED_SKILL_DIR}/skill-creator/SKILL.md"
+
+if [ ! -x "$NODE_BIN" ]; then
+  printf '%s\n' "DeepSeek Harness Node.js runtime is unavailable: ${NODE_BIN}" >&2
+  exit 127
+fi
+if [ ! -f "$DSH_ENTRY" ]; then
+  printf '%s\n' "DeepSeek Harness runtime is unavailable: ${DSH_ENTRY}" >&2
+  exit 127
+fi
+if [ ! -f "$BUNDLED_MAINTENANCE_SKILL" ]; then
+  printf '%s\n' "DeepSeek Harness bundled maintenance skill is unavailable: ${BUNDLED_MAINTENANCE_SKILL}" >&2
+  exit 127
+fi
+if [ ! -f "$BUNDLED_SKILL_CREATOR" ]; then
+  printf '%s\n' "DeepSeek Harness bundled skill creator is unavailable: ${BUNDLED_SKILL_CREATOR}" >&2
+  exit 127
+fi
+
+export TRIM_APPDEST="$APP_DEST"
+export TRIM_PKGVAR="$PKG_VAR"
+export TRIM_PKGHOME="$PKG_HOME"
+export DSH_HOME="${PKG_HOME}/.dsh"
+export DSH_BUNDLED_SKILL_DIR="$BUNDLED_SKILL_DIR"
+export DSH_FNOS_PLUGIN_POLICY=1
+unset DSH_ADDITIONAL_WRITABLE_ROOTS DSH_PERMISSION_MODE
+export PATH="${SCRIPT_DIR}:${NODE_RUNTIME_BIN}:/usr/local/bin:/usr/bin:/bin"
+
+exec "$NODE_BIN" "$DSH_ENTRY" "$@"

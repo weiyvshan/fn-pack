@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "${SCRIPT_DIR}/config-common"
+
+: "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+: "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+: "${TRIM_PKGHOME:?TRIM_PKGHOME is required}"
+DSH_HOME=$(package_dsh_home "$TRIM_PKGHOME")
+dsh_home_preexisting=false
+if [ -e "$DSH_HOME" ] || [ -L "$DSH_HOME" ]; then
+  dsh_home_preexisting=true
+fi
+DATA_SHARE_PATHS=${TRIM_DATA_SHARE_PATHS:-}
+WORKSPACE=${DATA_SHARE_PATHS%%:*}
+[ -n "$WORKSPACE" ] || WORKSPACE="${TRIM_PKGVAR}/workspace"
+
+if ! ensure_dsh_home "$TRIM_PKGHOME" "${TRIM_APPDEST}/server"; then
+  config_error "无法初始化 DeepSeek Harness 数据目录；请检查 apphome 和应用运行时。"
+  exit 1
+fi
+if ! ensure_shell_state "$TRIM_PKGVAR"; then
+  config_error "无法初始化模型 shell 持久化目录；请检查 appdata 权限和 shell 路径。"
+  exit 1
+fi
+
+mkdir -p "$WORKSPACE" "${DSH_HOME}/profiles/web" "${DSH_HOME}/logs"
+umask 077
+
+if ! install_pnpm_launcher "$TRIM_APPDEST" "$TRIM_PKGVAR"; then
+  config_error "应用私有 pnpm 启动器安装失败；请重新安装完整 FPK。"
+  exit 1
+fi
+if ! install_dsh_launcher "$TRIM_APPDEST" "$TRIM_PKGVAR"; then
+  config_error "DeepSeek Harness 命令入口安装失败；请重新安装完整 FPK。"
+  exit 1
+fi
+if ! prepare_landlock_launcher "$TRIM_APPDEST"; then
+  config_error "Landlock 沙箱启动器缺失或无法恢复执行权限；请重新安装完整 FPK。"
+  exit 1
+fi
+
+if ! remove_generated_loopback_profile "$DSH_HOME"; then
+  printf '%s\n' "Preserved customized DSH web profile during installation."
+fi
+
+api_key=${wizard_deepseek_api_key:-}
+proxy_host=${wizard_proxy_host:-}
+proxy_port=${wizard_proxy_port:-}
+marker_status=0
+wizard_config_marker_status "$DSH_HOME" || marker_status=$?
+if [ "$marker_status" -eq 2 ]; then
+  config_error "初装配置状态标记无效；为避免覆盖现有凭据和代理，安装回调已停止。"
+  exit 1
+fi
+
+apply_initial_wizard_config=false
+case ${TRIM_APP_STATUS:-} in
+  INSTALL)
+    [ "$marker_status" -eq 1 ] && [ "$dsh_home_preexisting" = false ] && apply_initial_wizard_config=true
+    ;;
+  UPGRADE) ;;
+  *)
+    config_error "无法确认当前是安装还是升级；为避免覆盖现有凭据和代理，安装回调已停止。"
+    exit 1
+    ;;
+esac
+
+if [ "$apply_initial_wizard_config" = true ]; then
+  if [ -n "$api_key" ]; then
+    if ! write_api_key "$DSH_HOME" "$api_key"; then
+      config_error "DeepSeek API Key 格式无效；安装已停止。"
+      exit 1
+    fi
+  fi
+
+  if [ -n "$proxy_host" ] || [ -n "$proxy_port" ]; then
+    if [ -z "$proxy_host" ] || [ -z "$proxy_port" ] || ! write_proxy "$DSH_HOME" "$proxy_host" "$proxy_port"; then
+      config_error "HTTP 代理必须同时提供有效主机和 1–65535 端口；安装已停止。"
+      exit 1
+    fi
+  fi
+fi
+
+if [ "$marker_status" -eq 1 ] && ! mark_wizard_config_initialized "$DSH_HOME"; then
+  config_error "无法记录初装配置状态；安装已停止。"
+  exit 1
+fi
+
+if [ ! -f "${WORKSPACE}/README.md" ]; then
+  cat >"${WORKSPACE}/README.md" <<'EOF'
+# DeepSeek Harness 工作区
+
+此目录是 DeepSeek Harness 的默认工作区。应用仅向 fnOS 管理员开放；如需访问其他 NAS 目录，请先在应用设置中授予目录权限。
+EOF
+fi
+
+printf '%s\n' "DeepSeek Harness data directories initialized."
+exit 0

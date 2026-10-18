@@ -1,0 +1,96 @@
+#!/bin/sh
+set -eu
+
+: "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+: "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+
+NODE_BIN=/var/apps/nodejs_v24/target/bin/node
+NODE_RUNTIME_BIN=${NODE_BIN%/node}
+PNPM_ENTRY="${TRIM_APPDEST}/pnpm/bin/pnpm.cjs"
+PNPM_STORE="${TRIM_PKGVAR}/pnpm-store"
+PKG_HOME=${TRIM_PKGHOME:-${TRIM_PKGVAR%/var}/home}
+
+launcher_error() {
+  printf '%s\n' "DeepSeek Harness pnpm launcher: $*" >&2
+  exit 126
+}
+
+if [ "${DSH_PLUGIN_STORE_DIR+x}" = x ]; then
+  PNPM_STORE=$DSH_PLUGIN_STORE_DIR
+  profiles_root="${PKG_HOME}/.dsh/profiles"
+  dsh_home="${PKG_HOME}/.dsh"
+
+  if [ -z "$PNPM_STORE" ] || printf '%s' "$PNPM_STORE" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    launcher_error 'DSH_PLUGIN_STORE_DIR is empty or contains control characters'
+  fi
+  case "$PNPM_STORE" in
+    "${profiles_root}/"*"/.pnpm-store") ;;
+    *) launcher_error 'DSH_PLUGIN_STORE_DIR is outside the profile-local store layout' ;;
+  esac
+
+  profile_name=${PNPM_STORE#"${profiles_root}/"}
+  profile_name=${profile_name%/.pnpm-store}
+  case "$profile_name" in
+    ''|.|..|node_modules|*/*|*\\*)
+      launcher_error 'DSH_PLUGIN_STORE_DIR does not name one direct profile'
+      ;;
+  esac
+  if [ "$PNPM_STORE" != "${profiles_root}/${profile_name}/.pnpm-store" ]; then
+    launcher_error 'DSH_PLUGIN_STORE_DIR is not canonical'
+  fi
+
+  profile_dir="${profiles_root}/${profile_name}"
+  for checked_path in "$dsh_home" "$profiles_root" "$profile_dir" "$PNPM_STORE"; do
+    if [ -L "$checked_path" ]; then
+      launcher_error "DSH_PLUGIN_STORE_DIR crosses a symbolic link: ${checked_path}"
+    fi
+  done
+  if [ ! -d "$dsh_home" ] || [ ! -d "$profiles_root" ] || [ ! -d "$profile_dir" ]; then
+    launcher_error 'DSH_PLUGIN_STORE_DIR requires an existing direct profile directory'
+  fi
+  if [ -e "$PNPM_STORE" ] && [ ! -d "$PNPM_STORE" ]; then
+    launcher_error 'DSH_PLUGIN_STORE_DIR exists but is not a directory'
+  fi
+fi
+
+if [ ! -x "$NODE_BIN" ]; then
+  printf '%s\n' "DeepSeek Harness Node.js runtime is unavailable: ${NODE_BIN}" >&2
+  exit 127
+fi
+if [ ! -f "$PNPM_ENTRY" ]; then
+  printf '%s\n' "DeepSeek Harness pnpm runtime is unavailable: ${PNPM_ENTRY}" >&2
+  exit 127
+fi
+
+export PATH="${NODE_RUNTIME_BIN}:${PATH:-/usr/bin:/bin}"
+
+if [ "${npm_config_proxy+x}" != x ]; then
+  if [ -n "${HTTP_PROXY:-}" ]; then
+    npm_config_proxy=$HTTP_PROXY
+    export npm_config_proxy
+  elif [ -n "${http_proxy:-}" ]; then
+    npm_config_proxy=$http_proxy
+    export npm_config_proxy
+  fi
+fi
+if [ "${npm_config_https_proxy+x}" != x ]; then
+  if [ -n "${HTTPS_PROXY:-}" ]; then
+    npm_config_https_proxy=$HTTPS_PROXY
+    export npm_config_https_proxy
+  elif [ -n "${https_proxy:-}" ]; then
+    npm_config_https_proxy=$https_proxy
+    export npm_config_https_proxy
+  fi
+fi
+if [ "${npm_config_noproxy+x}" != x ]; then
+  if [ -n "${NO_PROXY:-}" ]; then
+    npm_config_noproxy=$NO_PROXY
+    export npm_config_noproxy
+  elif [ -n "${no_proxy:-}" ]; then
+    npm_config_noproxy=$no_proxy
+    export npm_config_noproxy
+  fi
+fi
+
+export pnpm_config_store_dir="$PNPM_STORE"
+exec "$NODE_BIN" "$PNPM_ENTRY" "$@"

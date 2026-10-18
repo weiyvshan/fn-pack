@@ -1,0 +1,4 @@
+interface:
+  display_name: "飞牛原生应用打包"
+  short_description: "构建与审计飞牛原生 FPK，核验权限、升级、冷启动和网页入口"
+  default_prompt: "使用 $fnnas-app-creator 构建并实机验证一个 fnOS 应用包，保留版本、指纹和验收证据。"

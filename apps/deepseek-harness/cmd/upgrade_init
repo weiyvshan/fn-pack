@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "${SCRIPT_DIR}/config-common"
+"${SCRIPT_DIR}/main" stop
+: "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+: "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+: "${TRIM_UID:?TRIM_UID is required}"
+if ! cleanup_verified_legacy_processes "$TRIM_APPDEST" "$TRIM_UID"; then
+  message="升级前无法安全清理遗留的 DeepSeek Harness 进程。"
+  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  exit 1
+fi
+exit 0

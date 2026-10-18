@@ -1,0 +1,146 @@
+diff --git a/packages/attachment/attachment-local/src/store.ts b/packages/attachment/attachment-local/src/store.ts
+index 7fab679e3476d833efa7e887b3738a2e544e7099..a35873c2083a4ebb5c20b1ed655d76c3384cedb3 100644
+--- a/packages/attachment/attachment-local/src/store.ts
++++ b/packages/attachment/attachment-local/src/store.ts
+@@ -168,15 +168,39 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
+   }
+ }
+ 
++function isDirectoryAccessBoundary(error: unknown): boolean {
++  return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
++}
++
+ /**
+- * Establish this process's proof that one DSH_HOME entry and every ancestor
+- * below the filesystem root are durable. Mere existence is insufficient: a
+- * concurrent process may have created the directory but not synced its parent.
++ * Establish this process's proof that one DSH_HOME entry is durable, syncing
++ * accessible outer ancestors toward the filesystem root. Mere existence is
++ * insufficient: a concurrent process may have created the directory but not
++ * synced its parent.
+  */
+ async function ensureDurableHome(path: string): Promise<string> {
+   const home = resolve(path)
+   if (!durableHomes.has(home)) {
+-    await ensureDurableDirectory(home, parse(home).root)
++    await mkdir(home, { recursive: true, mode: 0o700 })
++    await chmod(home, 0o700)
++    const filesystemRoot = parse(home).root
++    let level = home
++    let parentSynced = false
++    while (level !== filesystemRoot) {
++      const parent = dirname(level)
++      try {
++        await syncDirectory(parent)
++      } catch (error) {
++        // Sandboxed service users can be allowed to traverse a volume root
++        // without being allowed to open it. Once the direct parent is synced,
++        // DSH_HOME itself is durable and that inaccessible outer ancestor can
++        // safely become the process's proof boundary.
++        if (parentSynced && isDirectoryAccessBoundary(error)) break
++        throw error
++      }
++      parentSynced = true
++      level = parent
++    }
+     durableHomes.add(home)
+   }
+   return home
+@@ -312,14 +336,16 @@ async function stageImmutableObject(
+   signal?: AbortSignal,
+ ): Promise<StagedImmutableObject> {
+   const staging = join(root, 'tmp')
+-  // Establish DSH_HOME itself against the filesystem root once per process.
+-  // Every process performs that proof independently, so observing a directory
+-  // another process created can never be mistaken for durable publication.
+-  const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
+-  await ensureDurableDirectory(staging, boundary)
+-  const temporary = join(staging, randomUUID())
++  let temporary: string | undefined
+   let handle
+   try {
++    // Establish DSH_HOME itself against the strongest accessible ancestor once
++    // per process. Every process performs that proof independently, so
++    // observing a directory another process created can never be mistaken for
++    // durable publication.
++    const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
++    await ensureDurableDirectory(staging, boundary)
++    temporary = join(staging, randomUUID())
+     handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+     const hash = createHash('sha256')
+     let bytes = 0
+@@ -341,7 +367,7 @@ async function stageImmutableObject(
+       /* v8 ignore next -- Close failure is superseded by the storage operation that entered cleanup. */
+       () => {},
+     )
+-    await removeTemporary(temporary)
++    if (temporary !== undefined) await removeTemporary(temporary)
+     if (error instanceof AttachmentError || signal?.aborted === true) throw error
+     throw new AttachmentError('Unable to persist attachment.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
+   }
+diff --git a/packages/attachment/attachment-local/tests/store.spec.ts b/packages/attachment/attachment-local/tests/store.spec.ts
+index 82c2b9f3bad8d87e12e69f37686d0bd39e22165e..a73ca933992da48928c33504627a57942ec6bb06 100644
+--- a/packages/attachment/attachment-local/tests/store.spec.ts
++++ b/packages/attachment/attachment-local/tests/store.spec.ts
+@@ -17,6 +17,7 @@ import {
+ } from '../src/store.ts'
+ 
+ const fsControl = vi.hoisted(() => ({
++  deniedDirectory: undefined as string | undefined,
+   readSignals: [] as AbortSignal[],
+   syncedDirectories: [] as string[],
+ }))
+@@ -34,7 +35,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
+       return actual.readFile(...args)
+     },
+     async open(...args: Parameters<typeof actual.open>): ReturnType<typeof actual.open> {
+-      if (args[1] === constants.O_RDONLY) fsControl.syncedDirectories.push(String(args[0]))
++      if (args[1] === constants.O_RDONLY) {
++        const directory = resolve(String(args[0]))
++        fsControl.syncedDirectories.push(directory)
++        if (directory === fsControl.deniedDirectory) {
++          throw Object.assign(new Error(`access denied: ${directory}`), { code: 'EACCES' })
++        }
++      }
+       return actual.open(...args)
+     },
+   }
+@@ -76,6 +83,7 @@ function parentChainToRoot(path: string): string[] {
+ }
+ 
+ afterEach(async () => {
++  fsControl.deniedDirectory = undefined
+   await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true })))
+ })
+ 
+@@ -119,6 +127,30 @@ describe('local attachment store', () => {
+     await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
+   })
+ 
++  it.skipIf(process.platform === 'win32')('persists below a durable home when an outer ancestor cannot be opened', async () => {
++    const storageRoot = await root()
++    const home = resolve(storageRoot, '..', '..')
++    const inaccessibleAncestor = parse(home).root
++    fsControl.syncedDirectories.length = 0
++    fsControl.deniedDirectory = inaccessibleAncestor
++
++    const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
++
++    await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
++    expect(fsControl.syncedDirectories).toContain(dirname(home))
++    expect(fsControl.syncedDirectories.filter(path => path === inaccessibleAncestor)).toHaveLength(1)
++  })
++
++  it.skipIf(process.platform === 'win32')('maps an inaccessible home parent to a stable storage error', async () => {
++    const storageRoot = await root()
++    const home = resolve(storageRoot, '..', '..')
++    fsControl.syncedDirectories.length = 0
++    fsControl.deniedDirectory = dirname(home)
++
++    await expect(saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY))
++      .rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
++  })
++
+   it('publishes one private content-addressed object and deduplicates equal bytes', async () => {
+     const storageRoot = await root()
+     const first = await saveImageFile(storageRoot, {

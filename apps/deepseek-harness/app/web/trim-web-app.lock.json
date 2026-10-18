@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "artifact_path": "app/web/trim-web-app-0.4.2.iife.js",
+  "artifact_sha256": "c9a6815b057f9d120174fdd4de5445bf549226ec5a46991488db3e5cb4c4be7c",
+  "artifact_bytes": 37699,
+  "source_package": {
+    "registry": "https://registry.npmjs.org",
+    "name": "@trimjs/web-app",
+    "version": "0.4.2",
+    "entry": "dist/index.js"
+  },
+  "bundle": {
+    "bundler": "esbuild",
+    "bundler_version": "0.25.12",
+    "format": "iife",
+    "global_name": "TrimAppSDK",
+    "platform": "browser",
+    "target": "es2020",
+    "minify": true
+  },
+  "rebuild_command": "npm install --no-save @trimjs/web-app@0.4.2 esbuild@0.25.12 && npx esbuild --bundle --format=iife --global-name=TrimAppSDK --platform=browser --target=es2020 node_modules/@trimjs/web-app/dist/index.js --outfile=trim-web-app-0.4.2.iife.js --minify",
+  "rebuild_environment": "WSL Debian-13 (node v24.20.0); output is byte-identical across rebuilds and across Windows/Linux esbuild runs",
+  "purpose": "fnOS JS SDK (@trimjs/web-app TrimApp) served by the gateway proxy at /__fnos/trim-web-app.js for presented-file and workspace file-manager page routing (openFile and openFileManager).",
+  "license_note": "Vendored third-party SDK retained unmodified in bundled form; license text available in the upstream npm package."
+}

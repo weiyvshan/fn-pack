@@ -1,0 +1,50 @@
+[
+  {
+    "stepTitle": "DeepSeek Harness 设置",
+    "items": [
+      {
+        "type": "password",
+        "field": "config_deepseek_api_key",
+        "label": "更新 DeepSeek API Key",
+        "initValue": "",
+        "placeholder": "sk-xxxxxxxxxxxxxxxx",
+        "pattern": "^$|^sk-[A-Za-z0-9_-]{8,256}$",
+        "desc": "留空保留现有值。"
+      },
+      {
+        "type": "switch",
+        "field": "config_clear_api_key",
+        "label": "清除已保存的 API Key",
+        "initValue": "false"
+      },
+      {
+        "type": "text",
+        "field": "config_proxy_host",
+        "label": "更新 HTTP 代理主机",
+        "initValue": "",
+        "placeholder": "192.168.1.2",
+        "pattern": "^$|^[A-Za-z0-9.-]{1,253}$",
+        "desc": "需与端口同时填写；留空保留现有值。代理在另一台电脑上时请填写其局域网 IP；127.0.0.1 仅指本 NAS。"
+      },
+      {
+        "type": "text",
+        "field": "config_proxy_port",
+        "label": "更新 HTTP 代理端口",
+        "initValue": "",
+        "placeholder": "7890",
+        "pattern": "^$|^[0-9]{1,5}$",
+        "desc": "需与主机同时填写；生命周期脚本会再次验证 1–65535 范围。"
+      },
+      {
+        "type": "switch",
+        "field": "config_clear_proxy",
+        "label": "清除已保存的 HTTP 代理",
+        "initValue": "false"
+      },
+      {
+        "type": "tips",
+        "helpText": "保存后请在应用中心重启应用，使环境变量更新生效。"
+      }
+    ]
+  }
+]

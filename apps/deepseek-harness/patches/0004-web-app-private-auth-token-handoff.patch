@@ -1,0 +1,138 @@
+diff --git a/packages/bundle/web-app/src/index.ts b/packages/bundle/web-app/src/index.ts
+index b93b559620..a6e53260fa 100644
+--- a/packages/bundle/web-app/src/index.ts
++++ b/packages/bundle/web-app/src/index.ts
+@@ -13,8 +13,10 @@
+  */
+ 
+ import { spawn, type ChildProcess } from 'node:child_process'
++import { randomBytes } from 'node:crypto'
++import { renameSync, rmSync, writeFileSync } from 'node:fs'
+ import { createRequire } from 'node:module'
+-import { dirname, join } from 'node:path'
++import { dirname, isAbsolute, join } from 'node:path'
+ import type { Context } from '@deepseek-ai/cordis'
+ import z from '@deepseek-ai/schemastery'
+ import { auditStartupEntries } from '@deepseek-ai/dsh-app-boot'
+@@ -82,6 +84,9 @@ export const Config: z<Config> = z.object({
+ /** Environment variable naming the advertised URL of this Web GUI. */
+ const DSH_WEB_URL = 'DSH_WEB_URL' as const
+ 
++/** Private handoff file used by authenticated reverse-proxy deployments. */
++const DSH_WEB_AUTH_TOKEN_FILE = 'DSH_WEB_AUTH_TOKEN_FILE' as const
++
+ const BROWSER_OPENER_MODULE = import.meta.resolve('open')
+ 
+ const BROWSER_OPENER_PROGRAM = `
+@@ -171,6 +176,26 @@ async function openBrowser(url: string): Promise<void> {
+   })
+ }
+ 
++/** Atomically publish the launch token without exposing its authenticated URL. */
++function publishManagedLaunchToken(destination: string, authenticatedUrl: string): void {
++  if (destination === '' || !isAbsolute(destination)) {
++    throw new Error(`${DSH_WEB_AUTH_TOKEN_FILE} must name an absolute file path`)
++  }
++  const url = new URL(authenticatedUrl)
++  const tokens = url.searchParams.getAll('token')
++  const token = tokens[0]
++  if (tokens.length !== 1 || token === undefined || !/^[A-Za-z0-9_-]+$/u.test(token)) {
++    throw new Error('web-app: Connection returned an invalid browser launch token')
++  }
++  const temporary = `${destination}.${String(process.pid)}.${randomBytes(8).toString('hex')}.tmp`
++  try {
++    writeFileSync(temporary, `${token}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
++    renameSync(temporary, destination)
++  } finally {
++    rmSync(temporary, { force: true })
++  }
++}
++
+ /** Test hooks for the built dist and native browser handoff; production never mutates them. */
+ export const internals: {
+   resolveDistIndex: () => string
+@@ -199,7 +224,9 @@ export function apply(ctx: Context, config: Config): void {
+   }
+   // The bind URL belongs to this host. Under SSH, the operator reaches it
+   // through a local forwarding address that this process cannot derive.
+-  const handoffBrowser = config.openBrowser && !launchedThroughSsh(launchEnvironmentOf(ctx))
++  const managedLaunchTokenFile = process.env[DSH_WEB_AUTH_TOKEN_FILE]
++  const handoffBrowser = managedLaunchTokenFile === undefined
++    && config.openBrowser && !launchedThroughSsh(launchEnvironmentOf(ctx))
+   /** The advertised root: the canonical `publicUrl`, or the listener's own origin. */
+   const appRootUrl = (): string => publicUrl ?? ctx.webServer.getOrigin()
+   ctx.provide('webApp', { getAdvertisedUrl: appRootUrl } satisfies WebApp)
+@@ -215,7 +242,7 @@ export function apply(ctx: Context, config: Config): void {
+       })
+     })
+   }
+-  if (config.printUrl || handoffBrowser) {
++  if (config.printUrl || handoffBrowser || managedLaunchTokenFile !== undefined) {
+     ctx.inject(['connection'], (connectionCtx) => {
+       // The URL line and browser handoff are readiness signals: supervisors RPC
+       // as soon as they observe the line, while a browser requests the page as
+@@ -226,9 +253,16 @@ export function apply(ctx: Context, config: Config): void {
+         if (ANNOUNCED_ROOTS.has(connectionCtx.root)) return
+         const webUrl = appRootUrl()
+         const authenticatedUrl = connectionCtx.connection.authenticatedUrl(webUrl)
++        if (managedLaunchTokenFile !== undefined) {
++          publishManagedLaunchToken(managedLaunchTokenFile, authenticatedUrl)
++        }
+         ANNOUNCED_ROOTS.add(connectionCtx.root)
+         if (config.printUrl) {
+-          console.log(`dsh web: ${authenticatedUrl}`)
++          if (managedLaunchTokenFile === undefined) {
++            console.log(`dsh web: ${authenticatedUrl}`)
++          } else {
++            console.log(`dsh web: ${webUrl} (browser authentication delegated to reverse proxy)`)
++          }
+         }
+         if (handoffBrowser) {
+           console.log('dsh web: opening the default browser; pass --no-open to disable')
+diff --git a/packages/bundle/web-app/tests/web-app.spec.ts b/packages/bundle/web-app/tests/web-app.spec.ts
+index 67a350355d..98ab93b57e 100644
+--- a/packages/bundle/web-app/tests/web-app.spec.ts
++++ b/packages/bundle/web-app/tests/web-app.spec.ts
+@@ -2,7 +2,7 @@
+ 
+ import { EventEmitter } from 'node:events'
+ import { spawn, type ChildProcess } from 'node:child_process'
+-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
++import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { PassThrough } from 'node:stream'
+@@ -305,6 +305,33 @@ describe('web-app runtime glue', () => {
+     expect(log).toHaveBeenCalledWith('dsh web: https://app.example/ui/?token=test-token')
+   })
+ 
++  it('publishes a private reverse-proxy token without logging or opening its authenticated URL', async () => {
++    stageDist()
++    const tokenRoot = mkdtempSync(join(tmpdir(), 'dsh-web-auth-token-'))
++    const tokenFile = join(tokenRoot, 'launch.token')
++    vi.stubEnv('DSH_WEB_AUTH_TOKEN_FILE', tokenFile)
++    const ctx = new Context()
++    ctx.provide('webServer', fakeHttpServer().server)
++    provideConnection(ctx)
++    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
++    const openBrowser = vi.fn(async () => {})
++    internals.openBrowser = openBrowser
++    try {
++      apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: false }))
++      await vi.waitFor(() => { expect(log).toHaveBeenCalled() })
++      expect(readFileSync(tokenFile, 'utf8')).toBe('test-token\n')
++      if (process.platform !== 'win32') expect(statSync(tokenFile).mode & 0o777).toBe(0o600)
++      expect(readdirSync(tokenRoot)).toEqual(['launch.token'])
++      expect(log).toHaveBeenCalledWith(
++        'dsh web: http://127.0.0.1:4567 (browser authentication delegated to reverse proxy)',
++      )
++      expect(log.mock.calls.flat().join(' ')).not.toContain('test-token')
++      expect(openBrowser).not.toHaveBeenCalled()
++    } finally {
++      await ctx.fiber.dispose()
++      rmSync(tokenRoot, { recursive: true, force: true })
++    }
++  })
+ 
+   it('does not publish readiness again when Connection reloads', async () => {
+     stageDist()

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "package": "dsh-purge",
+  "upstream_repository": "https://github.com/YuJunZhiXue/dsh-purge.git",
+  "upstream_commit": "30a6144d088c419f0eab2184aba686c0fed45055",
+  "upstream_version": "1.3.5",
+  "adapted_version": "1.3.5-fnos.2",
+  "dsh_target": "0.1.5-rc.2",
+  "patch": {
+    "path": "plugin-patches/0001-dsh-purge-fnos-runtime.patch",
+    "sha256": "1508f481a5e150012cb3692659e429b3e1d9d4273dc641004b91c58fec408e63"
+  },
+  "artifact": {
+    "file_name": "dsh-purge-1.3.5-fnos.2.tgz",
+    "bytes": 536254,
+    "sha256": "3110bfb0788de6976d774805e3311f96a1e7c09990fb009e4ac260fc65a79e56"
+  },
+  "gateway_roots": [
+    "/dsh-purge/"
+  ]
+}

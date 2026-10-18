@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+# Persistent profiles, credentials, sessions, and workspace data are preserved.
+exit 0
