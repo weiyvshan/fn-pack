@@ -630,6 +630,8 @@ try {
   $buildComponentPaths = @(
     'backend-ready.js',
     'builtin-skills/dsh-maintenance/SKILL.md',
+    'builtin-skills/init/SKILL.md',
+    'builtin-skills/init/agents/openai.yaml',
     'builtin-skills/skill-creator/SKILL.md',
     'builtin-skills/skill-creator/references/openai_yaml.md',
     'builtin-skills/skill-creator/references/powershell-authoring.md',
@@ -746,6 +748,8 @@ try {
     'backend-ready.js',
     'build-info.json',
     'builtin-skills/dsh-maintenance/SKILL.md',
+    'builtin-skills/init/SKILL.md',
+    'builtin-skills/init/agents/openai.yaml',
     'builtin-skills/skill-creator/SKILL.md',
     'builtin-skills/skill-creator/references/openai_yaml.md',
     'builtin-skills/skill-creator/references/powershell-authoring.md',

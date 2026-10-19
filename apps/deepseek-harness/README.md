@@ -7,7 +7,7 @@ the platform specification.
 ## Package contract
 
 - App identity: `deepseek-harness`
-- Package version (independent fnOS release series): `0.0.18`
+- Package version (independent fnOS release series): `0.0.19`
 - Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.2`, built from official release commit `687f282e8625c6b8d11ff58211a90524be2e4317`
 - Platform: x86 only; the source runtime is built and tested as Linux x86-64
 - Runtime dependency: `nodejs_v24`
@@ -22,7 +22,7 @@ the platform specification.
 - Profile package manager: bundled `pnpm` `11.28.5`, exposed only to the DSH process through an application-private launcher
 - Filesystem sandbox launcher: official `@deepseek-ai/node-addon-system-linux-x64` `0.1.2` (`bin/landlock-run`), hash-locked and functionally probed during the build
 - PTY runtime: upstream `node-pty` `1.2.0-beta.15` with the verified Linux x64 prebuild bundled in `prebuilds/linux-x64/pty.node`
-- Bundled skills: `dsh-maintenance` plus the fnOS/Linux subset of `skill-creator`, sourced from reviewed G480 user skills, shipped read-only under `${TRIM_APPDEST}/builtin-skills`, and exposed through `DSH_BUNDLED_SKILL_DIR`; the `skill-creator` package subset keeps its Markdown references and Bash helpers but excludes PowerShell scripts
+- Bundled skills: `init`, `dsh-maintenance` plus the fnOS/Linux subset of `skill-creator`, sourced from reviewed G480 user skills, shipped read-only under `${TRIM_APPDEST}/builtin-skills`, and exposed through `DSH_BUNDLED_SKILL_DIR`; the `skill-creator` package subset keeps its Markdown references and Bash helpers but excludes PowerShell scripts
 - Local source deltas: four ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, and documented Gateway/Connection transport defaults (the upstream 4096 MiB TypeScript build heap is kept as-is: 0.2.1-rc.2 host builds no longer fit under a 3072 MiB cap)
 
 The package home is `${TRIM_PKGHOME}` (on the G480 target volume,
@@ -220,6 +220,10 @@ resource kinds fail before creating a skill tree; the Markdown template is
 emitted through a quoted heredoc and placeholder substitution; front matter
 keys are trimmed before validation; YAML quoting doubles backslashes; and
 optional interface values retain embedded semicolons.
+The bundled `init` skill creates or incrementally refreshes a repository's
+`AGENTS.md`, preserving user-authored instructions. Its document and interface
+metadata are reviewed source snapshots from the supplied `init.zip`; malformed
+punctuation was normalized before hash-locking. It contains no executable scripts.
 These files are source snapshots, so future builds remain offline and do not
 depend on OneSSH or the G480 filesystem.
 The FPK does not copy, synchronize, delete, or change ACLs below the mutable

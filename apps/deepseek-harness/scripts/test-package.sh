@@ -434,7 +434,7 @@ done
 
 # The manifest identity is frozen for this release.
 assert_eq "$(manifest_value appname)" 'deepseek-harness' 'The DeepSeek Harness manifest must use appname deepseek-harness.'
-assert_eq "$(manifest_value version)" '0.0.18' 'The DeepSeek Harness manifest must use version 0.0.18.'
+assert_eq "$(manifest_value version)" '0.0.19' 'The DeepSeek Harness manifest must use version 0.0.19.'
 assert_eq "$(manifest_value platform)" 'x86' 'The DeepSeek Harness manifest must use x86 platform naming.'
 
 # The bundled dsh-maintenance skill must match the reviewed source.
@@ -445,6 +445,17 @@ matches "$MAINTENANCE_SKILL" '^name: dsh-maintenance$' \
     'The bundled dsh-maintenance skill must declare its identity.'
 not_matches "$MAINTENANCE_SKILL" '^name: gateway-route-injection$' \
     'The bundled dsh-maintenance skill must not keep the retired identity.'
+
+# The bundled init skill is a reviewed document-only snapshot.
+INIT_SKILL_ROOT="$PROJECT/app/builtin-skills/init"
+init_inventory=$(find "$INIT_SKILL_ROOT" -type f | sed "s|^$INIT_SKILL_ROOT/||" | LC_ALL=C sort)
+assert_eq "$init_inventory" "$(printf 'SKILL.md\nagents/openai.yaml\n')" 'The bundled init inventory must contain exactly the reviewed documents.'
+assert_eq "$(sha256_of "$INIT_SKILL_ROOT/SKILL.md")" '9f834c4620402e30b113d8998a6bf3521f3ae076bb1144eed5dddcfa464af057' 'The bundled init skill differs from the reviewed source.'
+assert_eq "$(sha256_of "$INIT_SKILL_ROOT/agents/openai.yaml")" '8a3e6b0e48d55d37244937e3e1a17fdab82754a057d9182a67273a1844680e40' 'The bundled init interface differs from the reviewed source.'
+matches "$INIT_SKILL_ROOT/SKILL.md" '^name: init$' 'The bundled init skill must declare its identity.'
+for init_path in builtin-skills/init/SKILL.md builtin-skills/init/agents/openai.yaml; do
+    [ "$(count_matches "$BUILD_FPK" "$init_path")" -ge 2 ] || fail "The FPK must record and require $init_path"
+done
 
 # The bundled skill-creator inventory must be exactly the reviewed subset.
 skill_creator_actual=$(find "$BUNDLED_SKILL_CREATOR_ROOT" -type f |

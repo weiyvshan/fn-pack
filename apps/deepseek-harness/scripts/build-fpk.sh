@@ -110,6 +110,8 @@ DOWNLOAD_USER_AGENT='fn-pack-deepseek-harness-builder'
 # Provenance components recorded in build-info.json, in this exact order.
 BUILD_COMPONENT_PATHS='backend-ready.js
 builtin-skills/dsh-maintenance/SKILL.md
+builtin-skills/init/SKILL.md
+builtin-skills/init/agents/openai.yaml
 builtin-skills/skill-creator/SKILL.md
 builtin-skills/skill-creator/references/openai_yaml.md
 builtin-skills/skill-creator/references/powershell-authoring.md
@@ -134,6 +136,8 @@ server/node_modules/@deepseek-ai/dsh/lib/bin.js'
 REQUIRED_NESTED_ENTRIES='backend-ready.js
 build-info.json
 builtin-skills/dsh-maintenance/SKILL.md
+builtin-skills/init/SKILL.md
+builtin-skills/init/agents/openai.yaml
 builtin-skills/skill-creator/SKILL.md
 builtin-skills/skill-creator/references/openai_yaml.md
 builtin-skills/skill-creator/references/powershell-authoring.md
@@ -913,8 +917,8 @@ while IFS= read -r _component_rel; do
     build_component "$STAGED_APP_ROOT" "$_component_rel" >> "$STAGE/components-input.txt"
 done < "$STAGE/component-paths.txt"
 component_count=$(count_lines < "$STAGE/components-input.txt")
-[ "$component_count" -eq 20 ] ||
-    die "Build provenance must record 20 components, got $component_count."
+[ "$component_count" -eq 22 ] ||
+    die "Build provenance must record 22 components, got $component_count."
 
 _python_build_info=$(python3 - "$STAGED_APP_ROOT/build-info.json" "$app_name" "$version" \
     "$LOCK_DSH_VERSION" "$LOCK_UPSTREAM_REPOSITORY" "$RESOLVED_COMMIT" "$RESOLVED_TREE" \

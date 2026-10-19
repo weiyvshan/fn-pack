@@ -31,7 +31,7 @@ fnOS 应用打包工作区。当前只收录 deepseek-harness 的打包工程，
 产物落在：
 
 ```
-build/deepseek-harness_0.0.18_x86.fpk
+build/deepseek-harness_0.0.19_x86.fpk
 ```
 
 把额外参数透传给构建脚本（例如换镜像源）：
@@ -48,8 +48,8 @@ pnpm_config_registry=https://registry.npmmirror.com ./bootstrap.sh
 - **正式发布**：推送与 manifest 版本完全一致的 tag，例如：
 
   ```bash
-  git tag deepseek-harness-v0.0.18
-  git push origin deepseek-harness-v0.0.18
+  git tag deepseek-harness-v0.0.19
+  git push origin deepseek-harness-v0.0.19
   ```
 
 - 只有 tag 构建成功且产物校验通过，发布 job 才会创建 Release 并附上 FPK 与 `SHA256SUMS`。不会静默覆盖已有 Release。

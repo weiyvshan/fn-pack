@@ -226,14 +226,26 @@ if (Test-Path -LiteralPath (Join-Path $projectPath 'LICENSE')) {
   throw 'The application root must not contain a LICENSE file.'
 }
 if ($manifestFields['appname'] -cne 'deepseek-harness' -or
-    $manifestFields['version'] -cne '0.0.18' -or
+    $manifestFields['version'] -cne '0.0.19' -or
     $manifestFields['platform'] -cne 'x86') {
-  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.18, and platform x86.'
+  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.19, and platform x86.'
 }
 if ($bundledMaintenanceSkillHash -cne '309f2d6973a678533493905a779ea097a9be17c26d32aaa9bea2614e56ed07df' -or
     $bundledMaintenanceSkillText -notmatch '(?m)^name: dsh-maintenance$' -or
     $bundledMaintenanceSkillText -match '(?m)^name: gateway-route-injection$') {
   throw 'The bundled dsh-maintenance skill must match the reviewed source.'
+}
+$initSkillRoot = Join-Path $projectPath 'app/builtin-skills/init'
+$initHashes = @{
+  'SKILL.md' = '9f834c4620402e30b113d8998a6bf3521f3ae076bb1144eed5dddcfa464af057'
+  'agents/openai.yaml' = '8a3e6b0e48d55d37244937e3e1a17fdab82754a057d9182a67273a1844680e40'
+}
+$initFiles = @(Get-ChildItem -LiteralPath $initSkillRoot -File -Recurse)
+if ($initFiles.Count -ne 2) { throw 'The bundled init inventory must contain exactly two reviewed documents.' }
+foreach ($relativePath in $initHashes.Keys) {
+  if ((Get-FileHash -LiteralPath (Join-Path $initSkillRoot $relativePath) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $initHashes[$relativePath]) {
+    throw "The bundled init file differs from the reviewed source: $relativePath"
+  }
 }
 if ($bundledSkillCreatorInventoryDifference.Count -ne 0) {
   throw 'The bundled skill-creator inventory must contain exactly the reviewed fnOS/Linux source subset and no PowerShell scripts.'
