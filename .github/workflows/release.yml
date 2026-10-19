@@ -1,0 +1,156 @@
+name: Build and release fnOS FPK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'deepseek-harness-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fnos-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Linux x86 FPK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Validate version and runner prerequisites
+        id: metadata
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          fields = {}
+          for line in pathlib.Path('apps/deepseek-harness/manifest').read_text().splitlines():
+              if '=' in line:
+                  key, value = line.split('=', 1)
+                  fields[key.strip()] = value.strip()
+          version = fields['version']
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
+              raise SystemExit(f'Unsupported package version: {version}')
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              expected = f'deepseek-harness-v{version}'
+              if os.environ['GITHUB_REF_NAME'] != expected:
+                  raise SystemExit(f'Tag must match manifest: {expected}')
+          mem_kib = int(next(line.split()[1] for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
+          if mem_kib < 14 * 1024 * 1024:
+              raise SystemExit('This build requires a runner with about 16 GB RAM. Private-repository standard Linux runners may have only 7 GB; select a larger runner before retrying.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'version={version}\n')
+          PY
+          test "$(uname -m)" = x86_64
+          for tool in git python3 node gcc g++ make readelf tar curl sha256sum sha512sum; do
+            command -v "$tool" || exit 1
+          done
+          node --version
+          free -h
+          df -h .
+          # The build itself executes the required Landlock probes.
+          test -f .agents/skills/fnnas-app-creator/bin/fnpack-1.2.3-linux-amd64
+
+      - name: Restore locked runtime archives
+        uses: actions/cache@v4
+        with:
+          path: .tmp/deepseek-harness-runtime-cache
+          key: runtime-assets-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/deepseek-harness/runtime.lock.json') }}
+
+      - name: Build and verify FPK
+        run: |
+          mkdir -p build
+          # pipefail preserves build failures while tee keeps a downloadable log.
+          bash bootstrap.sh 2>&1 | tee build/build.log
+
+      - name: Generate checksums and release notes
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          fpk="deepseek-harness_${VERSION}_x86.fpk"
+          test -s "build/$fpk"
+          (cd build && sha256sum "$fpk" > SHA256SUMS)
+          python3 - <<'PY'
+          import json, os, pathlib
+          lock = json.loads(pathlib.Path('apps/deepseek-harness/runtime.lock.json').read_text())
+          version = os.environ['VERSION']
+          notes = f'''# DeepSeek Harness {version} (fnOS x86)
+
+          - FPK version: {version}
+          - Upstream DSH: {lock['dsh_version']}
+          - Upstream commit: `{lock['upstream_commit']}`
+          - Packaging commit: `{os.environ['GITHUB_SHA']}`
+
+          Install the `.fpk` through fnOS App Center manual installation. Verify it against `SHA256SUMS`.
+          CI build success does not replace real-device installation, upgrade, UI and sandbox validation.
+
+          ## Changelog and validation limitations
+
+          '''
+          changelog = pathlib.Path('apps/deepseek-harness/CHANGELOG.md').read_text()
+          pathlib.Path('build/release-notes.md').write_text(notes + changelog)
+          PY
+
+      - name: Upload FPK and release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-harness-${{ steps.metadata.outputs.version }}-x86
+          path: |
+            build/*.fpk
+            build/SHA256SUMS
+            build/release-notes.md
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload build log even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/build.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    name: Publish tag release
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deepseek-harness-${{ needs.build.outputs.version }}-x86
+          path: dist
+
+      - name: Publish verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check SHA256SUMS
+          # No --clobber: never silently replace an existing published binary.
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "DeepSeek Harness ${VERSION} (fnOS x86)" \
+            --notes-file release-notes.md \
+            "deepseek-harness_${VERSION}_x86.fpk" SHA256SUMS

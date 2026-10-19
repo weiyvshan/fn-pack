@@ -40,6 +40,24 @@ build/deepseek-harness_0.0.18_x86.fpk
 pnpm_config_registry=https://registry.npmmirror.com ./bootstrap.sh
 ```
 
+## GitHub Actions 构建与发布
+
+工作流位于 `.github/workflows/release.yml`：
+
+- **测试构建**：在 Actions 页面选择 `Build and release fnOS FPK` → `Run workflow`。只构建并上传 FPK、校验文件及日志，不创建 Release。
+- **正式发布**：推送与 manifest 版本完全一致的 tag，例如：
+
+  ```bash
+  git tag deepseek-harness-v0.0.18
+  git push origin deepseek-harness-v0.0.18
+  ```
+
+- 只有 tag 构建成功且产物校验通过，发布 job 才会创建 Release 并附上 FPK 与 `SHA256SUMS`。不会静默覆盖已有 Release。
+- 依赖压缩包由 `actions/cache` 缓存；不缓存上游工作树，避免可变源码状态进入发布。
+- 默认使用 `ubuntu-24.04` 与 Node.js 24.20.0。**注意 public/private 仓库的标准 runner 规格可能不同**：构建预检要求约 16 GB RAM；如果私有仓库的标准 runner 只有约 7 GB，会提前失败，需要改用至少 16 GB 的 larger runner 或 self-hosted Linux x64 runner，而不是跳过检查。
+- 手动构建仅需读取仓库权限；发布 job 才获得 `contents: write`，无需额外 PAT。私有仓库的 Release 附件仍受仓库访问权限限制。
+- CI 成功不代表真机 UI、冷启动、升级与沙箱功能全部验收通过。发布说明附带应用变更记录及验证限制。
+
 ## 上游源码手动准备
 
 ```bash
