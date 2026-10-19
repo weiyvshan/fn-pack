@@ -220,7 +220,7 @@ $upgradeCallbackText = Get-Content -LiteralPath (Join-Path $projectPath 'cmd/upg
 $gatewayProxyText = Get-Content -LiteralPath (Join-Path $projectPath 'app/gateway-proxy.js') -Raw
 $fnosOpenEnhancerText = Get-Content -LiteralPath (Join-Path $projectPath 'app/web/fnos-open-enhancer.js') -Raw
 $dshLauncherText = Get-Content -LiteralPath (Join-Path $projectPath 'app/dsh-launcher') -Raw
-$terminalBashPath = Join-Path $repositoryRoot 'vendor/upstream/deepseek-harness/packages/terminal/terminal-bash/src/index.ts'
+$terminalBashPath = Join-Path $repositoryRoot '.tmp/deepseek-harness-upstream/packages/terminal/terminal-bash/src/index.ts'
 $terminalBashText = Get-Content -LiteralPath $terminalBashPath -Raw
 if (Test-Path -LiteralPath (Join-Path $projectPath 'LICENSE')) {
   throw 'The application root must not contain a LICENSE file.'

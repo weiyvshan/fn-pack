@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCK="$ROOT/apps/deepseek-harness/runtime.lock.json"
-UPSTREAM="$ROOT/vendor/upstream/deepseek-harness"
+UPSTREAM="$ROOT/.tmp/deepseek-harness-upstream"
 
 for tool in git python3 node; do
     command -v "$tool" >/dev/null 2>&1 || { echo "missing required tool: $tool" >&2; exit 1; }
@@ -41,6 +41,5 @@ echo "upstream source ready at $ACTUAL"
 
 exec bash "$ROOT/apps/deepseek-harness/scripts/build-fpk.sh" \
     --source-tree "$UPSTREAM" \
-    --pnpm-tarball "$ROOT/vendor/runtime-cache/pnpm-11.28.5.tgz" \
-    --landlock-tarball "$ROOT/vendor/runtime-cache/node-addon-system-linux-x64-0.1.2.tgz" \
+    --allow-download \
     "$@"

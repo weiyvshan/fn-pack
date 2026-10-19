@@ -6,8 +6,9 @@ fnOS 应用打包工作区。当前只收录 deepseek-harness 的打包工程，
 
 - `apps/deepseek-harness/` — deepseek-harness 打包工程（manifest、runtime.lock.json、四个锁定源码补丁、构建与自检脚本）
 - `.agents/skills/fnnas-app-creator/` — fnOS 打包技能，含 linux-amd64 的 `fnpack` 与审计脚本
-- `vendor/runtime-cache/` — 离线运行时缓存：pnpm 与 landlock 原生插件安装包
-- `vendor/upstream/` — 上游源码检出位置，**不入库**，由 `bootstrap.sh` 拉取
+- `.tmp/deepseek-harness-runtime-cache/` — 按锁定 URL 下载的 pnpm 与 Landlock 安装包缓存，**不入库**
+- `.tmp/deepseek-harness-upstream/` — 上游源码检出位置，**不入库**，由 `bootstrap.sh` 拉取
+- `build/` — 最终 FPK 构建产物，作为 GitHub Release 附件分发，不提交到 Git
 
 ## 目标机要求
 
@@ -23,7 +24,11 @@ fnOS 应用打包工作区。当前只收录 deepseek-harness 的打包工程，
 ./bootstrap.sh
 ```
 
-脚本会按 `apps/deepseek-harness/runtime.lock.json` 里记录的上游地址与 commit 拉取源码、校验 commit、再调用构建脚本。产物落在：
+脚本会按 `apps/deepseek-harness/runtime.lock.json` 里记录的上游地址与 commit 拉取源码、校验 commit，再调用构建脚本。缺少 pnpm 或 Landlock 安装包时，会按锁文件中的 URL 下载到 `.tmp/deepseek-harness-runtime-cache/`；包括缓存命中在内，构建前都会校验 SHA-256 与 SHA-512 integrity。下载需要 curl 或 wget，以及访问 npm registry 的网络。
+
+`.tmp/` 是可删除的构建临时目录；删除后下次构建会重新拉取源码和依赖。GitHub Actions 可用 `actions/cache` 缓存运行时安装包，缓存 key 应包含系统、架构和 `runtime.lock.json` 的哈希；缓存未命中不影响构建正确性。
+
+产物落在：
 
 ```
 build/deepseek-harness_0.0.18_x86.fpk
@@ -38,8 +43,9 @@ pnpm_config_registry=https://registry.npmmirror.com ./bootstrap.sh
 ## 上游源码手动准备
 
 ```bash
-git clone https://github.com/deepseek-ai/deepseek-harness.git vendor/upstream/deepseek-harness
-git -C vendor/upstream/deepseek-harness checkout 687f282e8625c6b8d11ff58211a90524be2e4317
+mkdir -p .tmp
+git clone https://github.com/deepseek-ai/deepseek-harness.git .tmp/deepseek-harness-upstream
+git -C .tmp/deepseek-harness-upstream checkout 687f282e8625c6b8d11ff58211a90524be2e4317
 ```
 
 ## 自检

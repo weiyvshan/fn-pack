@@ -87,7 +87,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-# The packaging repository root owns vendor/upstream, .tmp and build; it is the
+# The packaging repository root owns .tmp and build; it is the
 # parent of the parent of the package tree.
 REPO_ROOT=$(CDPATH= cd -- "$PROJECT/../.." && pwd) ||
     die "Unable to resolve the packaging repository root above $PROJECT"
@@ -408,8 +408,6 @@ require_command awk 'awk is required to parse tool output.'
 printf 'Project=%s\n' "$PROJECT"
 printf 'RepositoryRoot=%s\n' "$REPO_ROOT"
 
-[ -d "$REPO_ROOT/vendor/upstream" ] ||
-    die "vendor/upstream is missing under $REPO_ROOT; the packaging repository is required to build the FPK."
 require_file "$FNPACK_RESOLVER" 'The bundled fnpack resolver is missing.'
 require_file "$RUNTIME_LOCK_PATH" 'runtime.lock.json is missing.'
 require_file "$MANIFEST_PATH" 'The package manifest is missing.'

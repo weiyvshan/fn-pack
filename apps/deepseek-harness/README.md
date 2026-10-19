@@ -291,7 +291,8 @@ intentional cleared state.
 ## Source and runtime separation
 
 Generated `node_modules` are not stored in this source tree. The clean upstream
-checkout is the detached `vendor/upstream/deepseek-harness` Git submodule.
+checkout is prepared by the repository-root `bootstrap.sh` at the ignored
+`.tmp/deepseek-harness-upstream` path, detached at the locked commit.
 The small `app/server/package.json` checked into this repository is only a
 source marker; it is removed from staging and replaced with the complete
 source-built production runtime before fnpack runs. Each FPK includes a
@@ -359,24 +360,37 @@ other plugins, bundle order, lockfiles, and the profile-local store must be
 verified around that operation.
 
 The source build runs directly on x86-64 fnOS/Debian with Node.js 22.19 or
-newer, GCC, Make, Python 3, `readelf`, and Git. Initialize the pinned submodule,
-then build with the locked runtime assets:
+newer, GCC, Make, Python 3, `readelf`, and Git. From the repository root, run:
 
 ```bash
-git submodule update --init -- vendor/upstream/deepseek-harness
+bash bootstrap.sh
+```
+
+The bootstrap script prepares `.tmp/deepseek-harness-upstream` and passes it
+explicitly to the source resolver. Missing locked pnpm and Landlock archives are
+downloaded into `.tmp/deepseek-harness-runtime-cache`; cached and downloaded
+archives must both pass SHA-256 and SHA-512 integrity checks. Neither the upstream
+checkout nor downloaded archives are committed to Git.
+
+With an already prepared checkout and cached assets, an offline asset build can
+also be requested explicitly (the source build may still require other npm dependencies):
+
+```bash
 bash apps/deepseek-harness/scripts/build-fpk.sh \
+  --source-tree .tmp/deepseek-harness-upstream \
   --pnpm-tarball .tmp/deepseek-harness-runtime-cache/pnpm-11.28.5.tgz \
   --landlock-tarball .tmp/deepseek-harness-runtime-cache/node-addon-system-linux-x64-0.1.2.tgz
 ```
 
 `--source-tree` remains an explicit CI and diagnostic override, but the supplied
 checkout must have the locked origin, commit and tree and a clean working tree.
-Alternatively, `--allow-download` initializes the declared submodule when
-needed and downloads pnpm plus the official Landlock launcher into the ignored
+Alternatively, with the checkout prepared by bootstrap, `--allow-download`
+downloads missing pnpm and official Landlock launcher archives into the ignored
 cache:
 
 ```bash
-bash apps/deepseek-harness/scripts/build-fpk.sh --allow-download
+bash apps/deepseek-harness/scripts/build-fpk.sh \
+  --source-tree .tmp/deepseek-harness-upstream --allow-download
 ```
 
 The Linux build and validation chain requires only the native `.sh`, Node.js,

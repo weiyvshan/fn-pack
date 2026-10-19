@@ -29,7 +29,7 @@ done
 SKILL_ROOT="$REPO_ROOT/.agents/skills/fnnas-app-creator"
 AUDIT_SCRIPT="$SKILL_ROOT/scripts/audit_fnos_project.sh"
 GITMODULES="$REPO_ROOT/.gitmodules"
-TERMINAL_BASH_TS="$REPO_ROOT/vendor/upstream/deepseek-harness/packages/terminal/terminal-bash/src/index.ts"
+TERMINAL_BASH_TS="$REPO_ROOT/.tmp/deepseek-harness-upstream/packages/terminal/terminal-bash/src/index.ts"
 BUNDLED_SKILL_CREATOR_ROOT="$PROJECT/app/builtin-skills/skill-creator"
 SOURCE_CHECKOUT_SUITE="$PROJECT/tests/source-checkout.test.sh"
 
@@ -634,7 +634,7 @@ if [ -f "$TERMINAL_BASH_TS" ]; then
         'The terminal host bridge must export the DSH shell marker.'
     VENDOR_STATE='verified'
 else
-    VENDOR_STATE="skipped (the locked upstream submodule is absent from $REPO_ROOT/vendor/upstream)"
+    VENDOR_STATE="skipped (the locked upstream checkout is absent from $REPO_ROOT/.tmp/deepseek-harness-upstream)"
     note_skip "$VENDOR_STATE"
 fi
 
