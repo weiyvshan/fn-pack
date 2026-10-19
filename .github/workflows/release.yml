@@ -17,7 +17,7 @@ jobs:
   build:
     name: Build Linux x86 FPK
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     outputs:
       version: ${{ steps.metadata.outputs.version }}
     defaults:
@@ -49,9 +49,6 @@ jobs:
               expected = f'deepseek-harness-v{version}'
               if os.environ['GITHUB_REF_NAME'] != expected:
                   raise SystemExit(f'Tag must match manifest: {expected}')
-          mem_kib = int(next(line.split()[1] for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
-          if mem_kib < 14 * 1024 * 1024:
-              raise SystemExit('This build requires a runner with about 16 GB RAM. Private-repository standard Linux runners may have only 7 GB; select a larger runner before retrying.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'version={version}\n')
           PY
@@ -65,6 +62,40 @@ jobs:
           # The build itself executes the required Landlock probes.
           test -f .agents/skills/fnnas-app-creator/bin/fnpack-1.2.3-linux-amd64
 
+      - name: Prepare memory and swap for low-memory runner
+        run: |
+          mkdir -p build
+          # Keep diagnostics even when resource preparation or compilation fails.
+          exec > >(tee build/resources.log) 2>&1
+          free -h
+          df -h . "$RUNNER_TEMP"
+          mem_kib=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+          swap_kib=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
+          if (( mem_kib < 14 * 1024 * 1024 )); then
+            # Aim for at least 18 GiB RAM + swap, reusing existing swap.
+            missing_kib=$((18 * 1024 * 1024 - mem_kib - swap_kib))
+            if (( missing_kib > 0 )); then
+              swap_gib=$(((missing_kib + 1024 * 1024 - 1) / (1024 * 1024)))
+              available_kib=$(df -Pk "$RUNNER_TEMP" | awk 'END {print $4}')
+              # Leave 10 GiB beyond the swap allocation for source and build output.
+              required_kib=$(((swap_gib + 10) * 1024 * 1024))
+              if (( available_kib < required_kib )); then
+                echo "Insufficient disk for ${swap_gib} GiB swap plus 10 GiB build reserve."
+                exit 1
+              fi
+              swapfile="$RUNNER_TEMP/fn-pack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.swap"
+              test ! -e "$swapfile"
+              sudo -n install -m 600 /dev/null "$swapfile"
+              sudo -n fallocate -l "${swap_gib}G" "$swapfile"
+              sudo -n mkswap "$swapfile"
+              sudo -n swapon "$swapfile"
+              sudo -n sysctl vm.swappiness=20
+            fi
+          fi
+          free -h
+          swapon --show
+          df -h . "$RUNNER_TEMP"
+
       - name: Restore locked runtime archives
         uses: actions/cache@v4
         with:
@@ -75,7 +106,7 @@ jobs:
         run: |
           mkdir -p build
           # pipefail preserves build failures while tee keeps a downloadable log.
-          bash bootstrap.sh 2>&1 | tee build/build.log
+          /usr/bin/time -v bash bootstrap.sh 2>&1 | tee build/build.log
 
       - name: Generate checksums and release notes
         env:
@@ -122,7 +153,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/build.log
+          path: |
+            build/build.log
+            build/resources.log
           if-no-files-found: ignore
           retention-days: 14
 
