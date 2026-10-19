@@ -1,0 +1,44 @@
+[
+  {
+    "stepTitle": "Configure Sub2API administrator",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_admin_email",
+        "label": "Administrator email",
+        "initValue": "admin@sub2api.local",
+        "rules": [
+          {
+            "required": true,
+            "message": "Enter an administrator email"
+          },
+          {
+            "pattern": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+            "message": "Enter a valid email address"
+          }
+        ]
+      },
+      {
+        "type": "password",
+        "field": "wizard_admin_password",
+        "label": "Administrator password",
+        "initValue": "",
+        "rules": [
+          {
+            "required": true,
+            "message": "Enter an administrator password"
+          },
+          {
+            "pattern": "^[A-Za-z0-9._~!@%^+=,:-]{12,72}$",
+            "message": "Use 12-72 letters, numbers, or . _ ~ ! @ % ^ + = , : -"
+          }
+        ],
+        "helpText": "Used to create the initial Sub2API administrator. Save it before continuing; existing application data keeps its current administrator."
+      },
+      {
+        "type": "tips",
+        "helpText": "To choose a new administrator for a reinstall, first remove the old Sub2API data. Upgrading or reinstalling over preserved data does not reset the existing account."
+      }
+    ]
+  }
+]

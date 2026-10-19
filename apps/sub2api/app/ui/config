@@ -1,0 +1,16 @@
+{
+    ".url": {
+        "sub2api.Application": {
+            "title": "Sub2API",
+            "icon": "images/icon_{0}.png",
+            "type": "url",
+            "protocol": "http",
+            "port": "18081",
+            "url": "/",
+            "allUsers": false,
+            "control": {
+                "accessPerm": "readonly"
+            }
+        }
+    }
+}

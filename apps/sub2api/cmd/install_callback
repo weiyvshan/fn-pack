@@ -1,0 +1,4 @@
+#!/bin/bash
+. "$(dirname "$0")/installer"
+validate_install_credentials || exit 1
+run_phase "$(basename "$0")"

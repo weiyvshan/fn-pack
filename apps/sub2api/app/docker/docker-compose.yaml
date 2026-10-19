@@ -1,0 +1,93 @@
+services:
+  sub2api:
+    image: docker.io/weishaw/sub2api:0.2.17@sha256:44b59fc74b0b582750ef5f38146782db177767ef9d3f34351f1c75c157b1bb88
+    container_name: sub2api
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - /opt/fnos/sub2api-entrypoint.sh
+    command:
+      - /app/sub2api
+    environment:
+      AUTO_SETUP: "true"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      SERVER_MODE: release
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: sub2api
+      DATABASE_DBNAME: sub2api
+      DATABASE_SSLMODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      TZ: Asia/Taipei
+    ports:
+      - "${TRIM_SERVICE_PORT}:8080"
+    volumes:
+      - /var/apps/sub2api/shares/sub2api/data:/app/data
+      - "${TRIM_APPDEST}/docker/runtime-secrets:/run/sub2api-secrets:ro"
+      - "${TRIM_APPDEST}/docker/scripts/sub2api-entrypoint.sh:/opt/fnos/sub2api-entrypoint.sh:ro"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - sub2api-network
+
+  postgres:
+    image: docker.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    container_name: sub2api-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sub2api
+      POSTGRES_DB: sub2api
+      PGDATA: /var/lib/postgresql/data
+      TZ: Asia/Taipei
+      POSTGRES_PASSWORD_FILE: /run/sub2api-secrets/database_password
+    volumes:
+      - /var/apps/sub2api/shares/sub2api/postgres:/var/lib/postgresql/data
+      - /var/apps/sub2api/shares/sub2api/data:/sub2api-app-data
+      - "${TRIM_APPDEST}/docker/runtime-secrets:/run/sub2api-secrets:ro"
+      - "${TRIM_APPDEST}/docker/scripts/postgres-healthcheck.sh:/opt/fnos/postgres-healthcheck.sh:ro"
+    healthcheck:
+      test: ["CMD", "/bin/sh", "/opt/fnos/postgres-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - sub2api-network
+
+  redis:
+    image: docker.io/library/redis:8-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241
+    container_name: sub2api-redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -ec
+      - exec redis-server --save 60 1 --appendonly yes --appendfsync everysec --requirepass "$$(cat /run/sub2api-secrets/redis_password)"
+    environment:
+      TZ: Asia/Taipei
+    volumes:
+      - /var/apps/sub2api/shares/sub2api/redis:/data
+      - "${TRIM_APPDEST}/docker/runtime-secrets:/run/sub2api-secrets:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$(cat /run/sub2api-secrets/redis_password)\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - sub2api-network
+
+networks:
+  sub2api-network:
+    driver: bridge

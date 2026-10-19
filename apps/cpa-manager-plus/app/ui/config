@@ -1,0 +1,16 @@
+{
+  ".url": {
+    "cpa-manager-plus.main": {
+      "title": "CPA Manager Plus",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "18317",
+      "url": "/management.html",
+      "allUsers": false,
+      "control": {
+        "accessPerm": "readonly"
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+name: Build and release CPA Manager Plus
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['cpa-manager-plus-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cpa-manager-plus-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-app.yml
+    with:
+      app: cpa-manager-plus

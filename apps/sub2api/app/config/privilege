@@ -1,0 +1,8 @@
+{
+    "defaults":
+    {
+        "run-as": "package"
+    },
+    "username": "sub2api",
+    "groupname": "sub2api"
+}

@@ -1,0 +1,320 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+install_error() {
+    message=$1
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+        printf '%s\n' "$message" >"$TRIM_TEMP_LOGFILE" 2>/dev/null || :
+    fi
+    printf 'ERROR: %s\n' "$message" >&2
+}
+
+valid_secret() {
+    value=$1
+    length=${#value}
+    [ "$length" -ge 16 ] && [ "$length" -le 128 ] &&
+        printf '%s' "$value" | grep -Eq '^[A-Za-z0-9._~-]+$'
+}
+
+require_install_paths() {
+    : "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+    : "${TRIM_PKGETC:?TRIM_PKGETC is required}"
+    : "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+    : "${TRIM_PKGTMP:?TRIM_PKGTMP is required}"
+    : "${TRIM_PKGHOME:?TRIM_PKGHOME is required}"
+}
+
+prepare_layout() {
+    umask 077
+    mkdir -p \
+        "$TRIM_PKGETC/cli-proxy-api" \
+        "$TRIM_PKGETC/secrets" \
+        "$TRIM_PKGVAR/cli-proxy-api/auths" \
+        "$TRIM_PKGVAR/cli-proxy-api/logs" \
+        "$TRIM_PKGVAR/cli-proxy-api/plugins" \
+        "$TRIM_PKGVAR/cpa-manager-plus/run" \
+        "$TRIM_PKGVAR/logs" \
+        "$TRIM_PKGHOME"
+    chmod 0700 \
+        "$TRIM_PKGETC/cli-proxy-api" \
+        "$TRIM_PKGETC/secrets" \
+        "$TRIM_PKGVAR/cli-proxy-api/auths" \
+        "$TRIM_PKGVAR/cli-proxy-api/logs" \
+        "$TRIM_PKGVAR/cli-proxy-api/plugins" \
+        "$TRIM_PKGVAR/cpa-manager-plus/run" \
+        "$TRIM_PKGVAR/logs" \
+        "$TRIM_PKGHOME"
+}
+
+prepare_binaries() {
+    for binary in "$TRIM_APPDEST/bin/cli-proxy-api" "$TRIM_APPDEST/bin/cpa-manager-plus"; do
+        [ -f "$binary" ] || {
+            install_error "包内可执行文件缺失：$binary"
+            return 1
+        }
+        chmod 0755 "$binary"
+    done
+}
+
+prepare_plugin_binaries() {
+    source="$TRIM_APPDEST/plugins/credential-time-policy.so"
+    target="$TRIM_PKGVAR/cli-proxy-api/plugins/credential-time-policy.so"
+    temporary="${target}.new.$$"
+    # The credential time policy plugin is an optional enhancement: the package
+    # ships without it and CLIProxyAPI tolerates its absence. Deploy it only
+    # when the package actually carries it.
+    [ -s "$source" ] || return 0
+    if [ -f "$target" ] && cmp -s "$source" "$target"; then
+        chmod 0755 "$target"
+        return 0
+    fi
+    umask 077
+    cp -- "$source" "$temporary"
+    chmod 0755 "$temporary"
+    mv -f -- "$temporary" "$target"
+}
+
+generate_management_key() {
+    generated=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | dd bs=1 count=48 2>/dev/null)
+    if ! valid_secret "$generated"; then
+        install_error '无法生成内部 CPA Management Key。'
+        return 1
+    fi
+    printf '%s\n' "$generated"
+}
+
+write_private_value() {
+    target=$1
+    value=$2
+    temporary="${target}.new.$$"
+    umask 077
+    printf '%s\n' "$value" >"$temporary"
+    chmod 0600 "$temporary"
+    mv -f -- "$temporary" "$target"
+}
+
+render_cli_config() {
+    template="$TRIM_APPDEST/defaults/cli-proxy-api.yaml"
+    target="$TRIM_PKGETC/cli-proxy-api/config.yaml"
+    temporary="${target}.new.$$"
+    management_key=$1
+    api_key=$2
+
+    [ -r "$template" ] || {
+        install_error '包内 CLIProxyAPI 默认配置缺失。'
+        return 1
+    }
+
+    umask 077
+    : >"$temporary"
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            *'__CPA_MANAGEMENT_KEY__'*) printf '  secret-key: "%s"\n' "$management_key" >>"$temporary" ;;
+            *'__CLI_API_KEY__'*) printf '    - "%s"\n' "$api_key" >>"$temporary" ;;
+            *'__AUTH_DIR__'*) printf '  auth-dir: "%s"\n' "$TRIM_PKGVAR/cli-proxy-api/auths" >>"$temporary" ;;
+            *'__PLUGIN_DIR__'*) printf '  dir: "%s"\n' "$TRIM_PKGVAR/cli-proxy-api/plugins" >>"$temporary" ;;
+            *) printf '%s\n' "$line" >>"$temporary" ;;
+        esac
+    done <"$template"
+    chmod 0600 "$temporary"
+    mv -f -- "$temporary" "$target"
+}
+
+validate_fresh_secrets() {
+    admin_key=${wizard_cpamp_admin_key:-}
+    api_key=${wizard_cli_api_key:-}
+    if ! valid_secret "$admin_key"; then
+        install_error 'CPA Manager Plus 管理员密钥必须为 16-128 个安全字符。'
+        return 1
+    fi
+    if ! valid_secret "$api_key"; then
+        install_error 'CLIProxyAPI 初始 API Key 必须为 16-128 个安全字符。'
+        return 1
+    fi
+}
+
+validate_existing_state() {
+    config="$TRIM_PKGETC/cli-proxy-api/config.yaml"
+    management_file="$TRIM_PKGETC/secrets/cpa-management-key"
+    admin_file="$TRIM_PKGETC/secrets/cpamp-admin-key"
+    [ -s "$config" ] && [ -s "$management_file" ] && [ -s "$admin_file" ] || {
+        install_error '保留的配置不完整；拒绝用未知密钥覆盖现有应用状态。'
+        return 1
+    }
+    if grep -Eq '__[A-Z0-9_]+__' "$config"; then
+        install_error '保留的 CLIProxyAPI 配置仍包含未替换占位符。'
+        return 1
+    fi
+}
+
+ensure_cpamp_proxy_management_access() {
+    config="$TRIM_PKGETC/cli-proxy-api/config.yaml"
+    target_section=$(
+        awk '
+            {
+                line = $0
+                sub(/[[:space:]]*#.*/, "", line)
+                if (line ~ /^management:[[:space:]]*$/) {
+                    management_count++
+                } else if (line ~ /^remote-management:[[:space:]]*$/) {
+                    legacy_count++
+                }
+            }
+            END {
+                if (management_count == 1) {
+                    print "management"
+                    exit 0
+                }
+                if (management_count == 0 && legacy_count == 1) {
+                    print "remote-management"
+                    exit 0
+                }
+                exit 42
+            }
+        ' "$config"
+    ) || {
+        install_error '无法唯一识别 CLIProxyAPI management 或 remote-management 配置段；拒绝覆盖现有配置。'
+        return 1
+    }
+
+    temporary="${config}.new.$$"
+    umask 077
+    if ! awk -v target_section="$target_section" '
+        BEGIN {
+            in_target = 0
+            section_count = 0
+            value_count = 0
+        }
+        {
+            line = $0
+            if (line ~ /^[^[:space:]#]/) {
+                in_target = (line ~ ("^" target_section ":[[:space:]]*($|#)"))
+                if (in_target) {
+                    section_count++
+                }
+            }
+            if (in_target && line ~ /^[[:space:]]+allow-remote:[[:space:]]*/) {
+                value_count++
+                if (line ~ /^[[:space:]]+allow-remote:[[:space:]]*false[[:space:]]*(#.*)?$/) {
+                    sub(/allow-remote:[[:space:]]*false/, "allow-remote: true", line)
+                } else if (line !~ /^[[:space:]]+allow-remote:[[:space:]]*true[[:space:]]*(#.*)?$/) {
+                    invalid = 1
+                }
+            }
+            print line
+        }
+        END {
+            if (section_count != 1 || value_count != 1 || invalid) {
+                exit 42
+            }
+        }
+    ' "$config" >"$temporary"; then
+        rm -f -- "$temporary"
+        install_error "无法确认 CLIProxyAPI ${target_section}.allow-remote 配置；拒绝覆盖现有配置。"
+        return 1
+    fi
+    chmod 0600 "$temporary"
+    mv -f -- "$temporary" "$config"
+}
+
+install_init() {
+    require_install_paths
+    validate_fresh_secrets
+}
+
+install_callback() {
+    require_install_paths
+    prepare_layout
+    prepare_binaries
+    prepare_plugin_binaries
+    config="$TRIM_PKGETC/cli-proxy-api/config.yaml"
+    if [ -e "$config" ]; then
+        validate_existing_state
+        ensure_cpamp_proxy_management_access
+        chmod 0600 "$config" "$TRIM_PKGETC/secrets/cpa-management-key" "$TRIM_PKGETC/secrets/cpamp-admin-key"
+        printf '%s\n' 'Preserved existing CPA Manager Plus configuration and data.'
+        return 0
+    fi
+
+    validate_fresh_secrets
+    management_key=$(generate_management_key) || return 1
+    write_private_value "$TRIM_PKGETC/secrets/cpa-management-key" "$management_key"
+    write_private_value "$TRIM_PKGETC/secrets/cpamp-admin-key" "$wizard_cpamp_admin_key"
+    render_cli_config "$management_key" "$wizard_cli_api_key"
+    printf '%s\n' 'Initialized CPA Manager Plus private configuration.'
+}
+
+upgrade_init() {
+    require_install_paths
+    validate_existing_state
+}
+
+upgrade_callback() {
+    require_install_paths
+    prepare_layout
+    prepare_binaries
+    prepare_plugin_binaries
+    validate_existing_state
+    ensure_cpamp_proxy_management_access
+    chmod 0600 "$TRIM_PKGETC/cli-proxy-api/config.yaml" \
+        "$TRIM_PKGETC/secrets/cpa-management-key" \
+        "$TRIM_PKGETC/secrets/cpamp-admin-key"
+    printf '%s\n' 'Preserved CPA Manager Plus configuration, credentials, plugins, and statistics.'
+}
+
+uninstall_init() {
+    require_install_paths
+    :
+}
+
+canonical_path() {
+    path=$1
+    if command -v realpath >/dev/null 2>&1; then
+        realpath -e -- "$path"
+    elif command -v readlink >/dev/null 2>&1; then
+        readlink -f -- "$path"
+    else
+        return 1
+    fi
+}
+
+remove_app_root() {
+    label=$1
+    path=$2
+    [ -n "$path" ] && [ "${path#/}" != "$path" ] && [ ! -L "$path" ] || {
+        install_error "拒绝删除不安全的 ${label} 路径。"
+        return 1
+    }
+    [ -e "$path" ] || return 0
+    resolved=$(canonical_path "$path") || {
+        install_error "无法规范化 ${label} 删除路径。"
+        return 1
+    }
+    case "$resolved" in
+        /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/opt|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var|/var/apps|/vol[0-9]|/vol[0-9][0-9]|/vol[0-9][0-9][0-9])
+            install_error "拒绝删除范围过大的 ${label} 路径。"
+            return 1
+            ;;
+    esac
+    parent=$(dirname -- "$resolved")
+    [ "$parent" != "$resolved" ] && [ "$parent" != / ] || {
+        install_error "拒绝删除缺少安全父目录的 ${label} 路径。"
+        return 1
+    }
+    printf 'Removing CPA Manager Plus %s data at %s\n' "$label" "$resolved"
+    rm -rf -- "$resolved"
+}
+
+uninstall_callback() {
+    require_install_paths
+    if [ "${delete_data:-false}" != true ]; then
+        printf '%s\n' 'Preserved CPA Manager Plus configuration and data.'
+        return 0
+    fi
+    remove_app_root configuration "$TRIM_PKGETC"
+    remove_app_root runtime "$TRIM_PKGVAR"
+    remove_app_root home "$TRIM_PKGHOME"
+    printf '%s\n' 'Deleted CPA Manager Plus application data.'
+}

@@ -1,0 +1,641 @@
+#!/bin/sh
+set -eu
+
+: "${TRIM_APPDEST:?TRIM_APPDEST is required}"
+: "${TRIM_PKGETC:?TRIM_PKGETC is required}"
+: "${TRIM_PKGVAR:?TRIM_PKGVAR is required}"
+: "${TRIM_PKGTMP:?TRIM_PKGTMP is required}"
+: "${TRIM_PKGHOME:?TRIM_PKGHOME is required}"
+: "${TRIM_UID:?TRIM_UID is required}"
+
+CLI_BIN="$TRIM_APPDEST/bin/cli-proxy-api"
+CPA_BIN="$TRIM_APPDEST/bin/cpa-manager-plus"
+CLI_CONFIG="$TRIM_PKGETC/cli-proxy-api/config.yaml"
+MANAGEMENT_KEY_FILE="$TRIM_PKGETC/secrets/cpa-management-key"
+ADMIN_KEY_FILE="$TRIM_PKGETC/secrets/cpamp-admin-key"
+CLI_VAR="$TRIM_PKGVAR/cli-proxy-api"
+CPA_VAR="$TRIM_PKGVAR/cpa-manager-plus"
+RUN_DIR="$CPA_VAR/run"
+LEGACY_RUN_DIR="$TRIM_PKGTMP/run"
+LOCK_DIR="$RUN_DIR/lifecycle.lock"
+LOCK_OWNER_FILE="$LOCK_DIR/pid"
+LOG_DIR="$TRIM_PKGVAR/logs"
+CLI_LOG="$CLI_VAR/logs/cli-proxy-api.log"
+CPA_LOG="$LOG_DIR/cpa-manager-plus.log"
+CLI_PID_FILE="$RUN_DIR/cli-proxy-api.pid"
+CPA_PID_FILE="$RUN_DIR/cpa-manager-plus.pid"
+LEGACY_CLI_PID_FILE="$LEGACY_RUN_DIR/cli-proxy-api.pid"
+LEGACY_CPA_PID_FILE="$LEGACY_RUN_DIR/cpa-manager-plus.pid"
+ERROR_LOG=${TRIM_TEMP_LOGFILE:-$LOG_DIR/last-error.log}
+CLI_CANDIDATE_PID=
+CPA_CANDIDATE_PID=
+STARTUP_CLEANUP=false
+LOCK_HELD=false
+
+log_message() {
+    mkdir -p "$LOG_DIR"
+    printf '[%s] %s\n' "$(date '+%F %T')" "$*" >>"$LOG_DIR/lifecycle.log"
+}
+
+report_error() {
+    message=$1
+    mkdir -p "$(dirname "$ERROR_LOG")" 2>/dev/null || :
+    printf '%s\n' "$message" >"$ERROR_LOG" 2>/dev/null || :
+    log_message "ERROR: $message"
+    printf '%s\n' "$message" >&2
+}
+
+read_pid() {
+    file=$1
+    [ -r "$file" ] || return 1
+    pid=$(head -n 1 "$file" | tr -d '[:space:]')
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+        *) printf '%s\n' "$pid" ;;
+    esac
+}
+
+lifecycle_owner_matches() {
+    pid=$1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    process_cmdline=$(tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null) || return 1
+    case "$process_cmdline" in
+        *"/${TRIM_APPNAME:-cpa-manager-plus}/cmd/main"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+release_lifecycle_lock() {
+    [ "$LOCK_HELD" = true ] || return 0
+    owner=$(read_pid "$LOCK_OWNER_FILE" 2>/dev/null || true)
+    if [ "$owner" = "$$" ]; then
+        rm -f -- "$LOCK_OWNER_FILE"
+        rmdir -- "$LOCK_DIR" 2>/dev/null || :
+    fi
+    LOCK_HELD=false
+}
+
+acquire_lifecycle_lock() {
+    mkdir -p "$RUN_DIR" 2>/dev/null || {
+        report_error "无法创建 CPA Manager Plus 生命周期运行目录。"
+        return 1
+    }
+    chmod 0700 "$RUN_DIR" 2>/dev/null || {
+        report_error "无法设置 CPA Manager Plus 生命周期运行目录权限。"
+        return 1
+    }
+    if mkdir -- "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"$LOCK_OWNER_FILE" || {
+            rmdir -- "$LOCK_DIR" 2>/dev/null || :
+            report_error "无法记录 CPA Manager Plus 生命周期锁归属。"
+            return 1
+        }
+        LOCK_HELD=true
+        trap release_lifecycle_lock 0
+        trap 'release_lifecycle_lock; exit 129' 1
+        trap 'release_lifecycle_lock; exit 130' 2
+        trap 'release_lifecycle_lock; exit 143' 15
+        return 0
+    fi
+
+    owner=$(read_pid "$LOCK_OWNER_FILE" 2>/dev/null || true)
+    if [ -n "$owner" ] && lifecycle_owner_matches "$owner"; then
+        report_error "CPA Manager Plus 已有生命周期操作正在执行，请稍后重试。"
+        return 1
+    fi
+    rm -f -- "$LOCK_OWNER_FILE"
+    rmdir -- "$LOCK_DIR" 2>/dev/null || {
+        report_error "无法接管 CPA Manager Plus 的陈旧生命周期锁。"
+        return 1
+    }
+    if mkdir -- "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"$LOCK_OWNER_FILE" || {
+            rmdir -- "$LOCK_DIR" 2>/dev/null || :
+            report_error "无法记录 CPA Manager Plus 生命周期锁归属。"
+            return 1
+        }
+        LOCK_HELD=true
+        trap release_lifecycle_lock 0
+        trap 'release_lifecycle_lock; exit 129' 1
+        trap 'release_lifecycle_lock; exit 130' 2
+        trap 'release_lifecycle_lock; exit 143' 15
+        return 0
+    fi
+    report_error "无法获取 CPA Manager Plus 生命周期锁，请稍后重试。"
+    return 1
+}
+
+wait_for_lifecycle_quiet() {
+    waited=0
+    while [ -d "$LOCK_DIR" ] && [ "$waited" -lt 90 ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+# Resolve the executable evidence for a process that may belong to this package.
+#
+# App Center invokes the lifecycle hooks as the package user without capabilities
+# inside a sandbox where the kernel denies readlink on /proc/<pid>/exe for a
+# process that is neither an ancestor of the target nor privileged. The same
+# target keeps /proc/<pid>/cmdline and /proc/<pid>/comm readable, so argv[0]
+# plus the kernel-maintained short name still form a same-uid identity check.
+# /proc/<pid>/comm holds at most TASK_COMM_LEN-1 bytes, so it is accepted as a
+# prefix of argv[0]'s basename rather than as an equal value. Without this
+# fallback a live package listener looks unowned, is never stopped, and its
+# fixed port stays occupied.
+package_process_binary() {
+    pid=$1
+    process_exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+    if [ -n "$process_exe" ]; then
+        printf '%s\n' "${process_exe%" (deleted)"}"
+        return 0
+    fi
+    process_cmdline=$(tr '\000' '\n' <"/proc/$pid/cmdline" 2>/dev/null | head -n 1)
+    case "$process_cmdline" in
+        /*) : ;;
+        *) return 1 ;;
+    esac
+    process_comm=$(head -n 1 "/proc/$pid/comm" 2>/dev/null)
+    [ -n "$process_comm" ] || return 1
+    process_leaf=$(basename -- "$process_cmdline")
+    [ "${process_leaf#"$process_comm"}" != "$process_leaf" ] || return 1
+    printf '%s\n' "$process_cmdline"
+}
+
+pid_matches() {
+    pid=$1
+    expected=$2
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/status" ] || return 1
+    process_uid=$(awk '/^Uid:/ { print $2; exit }' "/proc/$pid/status" 2>/dev/null)
+    [ "$process_uid" = "$TRIM_UID" ] || return 1
+    expected_exe=$(readlink -f "$expected" 2>/dev/null) || return 1
+    process_exe=$(package_process_binary "$pid") || return 1
+    [ -n "$process_exe" ] || return 1
+    resolved_exe=$process_exe
+    if [ -e "$process_exe" ]; then
+        canonical_exe=$(readlink -f "$process_exe" 2>/dev/null || true)
+        [ -n "$canonical_exe" ] && resolved_exe=$canonical_exe
+    fi
+    [ "$resolved_exe" = "$expected_exe" ]
+}
+
+pid_matches_package_binary() {
+    pid=$1
+    expected=$2
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/status" ] || return 1
+    process_uid=$(awk '/^Uid:/ { print $2; exit }' "/proc/$pid/status" 2>/dev/null)
+    [ "$process_uid" = "$TRIM_UID" ] || return 1
+    process_exe=$(package_process_binary "$pid") || return 1
+    [ -n "$process_exe" ] || return 1
+    expected_leaf=$(basename -- "$expected")
+    [ "$(basename -- "$process_exe")" = "$expected_leaf" ] || return 1
+    case "$process_exe" in
+        */"${TRIM_APPNAME:-cpa-manager-plus}"*/bin/"$expected_leaf") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+owned_process_running() {
+    pid_file=$1
+    expected=$2
+    pid=$(read_pid "$pid_file") || return 1
+    pid_matches "$pid" "$expected"
+}
+
+http_ready() {
+    url=$1
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsS --max-time 2 "$url" >/dev/null 2>&1
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -T 2 -O /dev/null "$url" >/dev/null 2>&1
+    else
+        return 2
+    fi
+}
+
+port_is_listening() {
+    port=$1
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -Eq "[.:]${port}[[:space:]]"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -ltn 2>/dev/null | awk -v port="$port" '
+            $1 == "TCP" {
+                local_address = $2
+                state = $4
+                if (local_address ~ (":" port "$") && state == "LISTENING") {
+                    found = 1
+                }
+            }
+            $1 ~ /^tcp/ && $1 != "TCP" {
+                local_address = $4
+                state = $6
+                if (local_address ~ (":" port "$") && state == "LISTEN") {
+                    found = 1
+                }
+            }
+            END { exit(found ? 0 : 1) }'
+    else
+        return 2
+    fi
+}
+
+# Summarize the current listener of a fixed port so a stop or start failure names
+# the process that still holds it instead of only restating the port number.
+describe_port_owner() {
+    port=$1
+    command -v ss >/dev/null 2>&1 || return 0
+    owner_line=$(ss -ltnp 2>/dev/null | grep -E "[.:]${port}[[:space:]]" | head -n 1) || true
+    [ -n "$owner_line" ] || return 0
+    owner_pid=$(printf '%s\n' "$owner_line" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p')
+    owner_name=$(printf '%s\n' "$owner_line" | sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p')
+    if [ -n "$owner_pid" ]; then
+        printf '%s (pid=%s)\n' "${owner_name:-unknown}" "$owner_pid"
+    fi
+}
+
+ensure_port_free() {
+    port=$1
+    label=$2
+    result=0
+    port_is_listening "$port" || result=$?
+    case "$result" in
+        0)
+            owner_description=$(describe_port_owner "$port" || true)
+            if [ -n "$owner_description" ]; then
+                report_error "${label} 固定端口 ${port} 已被其他进程占用：${owner_description}"
+            else
+                report_error "${label} 固定端口 ${port} 已被其他进程占用。"
+            fi
+            return 1
+            ;;
+        1) return 0 ;;
+        *) report_error "无法检查 ${label} 固定端口 ${port}。"; return 1 ;;
+    esac
+}
+
+validate_runtime() {
+    for binary in "$CLI_BIN" "$CPA_BIN"; do
+        [ -f "$binary" ] && [ -x "$binary" ] || {
+            report_error "包内可执行文件缺失或不可执行：$binary"
+            return 1
+        }
+    done
+    for secret_file in "$MANAGEMENT_KEY_FILE" "$ADMIN_KEY_FILE"; do
+        [ -s "$secret_file" ] || {
+            report_error "私有密钥文件缺失：$secret_file"
+            return 1
+        }
+        secret=$(head -n 1 "$secret_file" | tr -d '\r\n')
+        length=${#secret}
+        if [ "$length" -lt 16 ] || [ "$length" -gt 128 ] || ! printf '%s' "$secret" | grep -Eq '^[A-Za-z0-9._~-]+$'; then
+            report_error "私有密钥文件格式无效：$secret_file"
+            return 1
+        fi
+    done
+    [ -s "$CLI_CONFIG" ] || {
+        report_error "CLIProxyAPI 配置缺失：$CLI_CONFIG"
+        return 1
+    }
+    if grep -Eq '__[A-Z0-9_]+__' "$CLI_CONFIG"; then
+        report_error 'CLIProxyAPI 配置包含未替换占位符。'
+        return 1
+    fi
+}
+
+stop_verified_pid() {
+    pid=$1
+    expected=$2
+    label=$3
+    matcher=$4
+    [ -n "$pid" ] || return 0
+    if ! "$matcher" "$pid" "$expected"; then
+        log_message "Refused to signal unowned ${label} pid ${pid}."
+        return 0
+    fi
+    kill -TERM "$pid" 2>/dev/null || :
+    waited=0
+    while kill -0 "$pid" 2>/dev/null && "$matcher" "$pid" "$expected" && [ "$waited" -lt 15 ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null && "$matcher" "$pid" "$expected"; then
+        kill -KILL "$pid" 2>/dev/null || :
+        waited=0
+        while kill -0 "$pid" 2>/dev/null && "$matcher" "$pid" "$expected" && [ "$waited" -lt 5 ]; do
+            sleep 1
+            waited=$((waited + 1))
+        done
+    fi
+    if kill -0 "$pid" 2>/dev/null && "$matcher" "$pid" "$expected"; then
+        report_error "${label} 进程 ${pid} 无法停止，拒绝继续操作。"
+        return 1
+    fi
+    return 0
+}
+
+stop_pid() {
+    stop_verified_pid "$1" "$2" "$3" pid_matches
+}
+
+stop_package_pid() {
+    stop_verified_pid "$1" "$2" "$3" pid_matches_package_binary
+}
+
+stop_owned_process() {
+    pid_file=$1
+    expected=$2
+    label=$3
+    pid=$(read_pid "$pid_file" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+        stop_pid "$pid" "$expected" "$label" || return 1
+    fi
+    rm -f -- "$pid_file"
+}
+
+stop_component_processes() {
+    pid_file=$1
+    legacy_pid_file=$2
+    expected=$3
+    label=$4
+    result=0
+    for candidate_file in "$pid_file" "$legacy_pid_file"; do
+        pid=$(read_pid "$candidate_file" 2>/dev/null || true)
+        if [ -n "$pid" ] && pid_matches_package_binary "$pid" "$expected"; then
+            stop_package_pid "$pid" "$expected" "$label" || result=1
+        fi
+    done
+    for process_status in /proc/[0-9]*/status; do
+        [ -r "$process_status" ] || continue
+        pid=${process_status#/proc/}
+        pid=${pid%/status}
+        if pid_matches_package_binary "$pid" "$expected"; then
+            stop_package_pid "$pid" "$expected" "$label" || result=1
+        fi
+    done
+    if [ "$result" -eq 0 ]; then
+        rm -f -- "$pid_file" "$legacy_pid_file"
+    fi
+    return "$result"
+}
+
+wait_for_port_release() {
+    port=$1
+    label=$2
+    waited=0
+    while [ "$waited" -lt 15 ]; do
+        port_result=0
+        port_is_listening "$port" || port_result=$?
+        case "$port_result" in
+            1) return 0 ;;
+            0) sleep 1; waited=$((waited + 1)) ;;
+            *) report_error "无法确认 ${label} 端口 ${port} 已释放。"; return 1 ;;
+        esac
+    done
+    report_error "${label} 端口 ${port} 在停止服务后仍被占用。"
+    owner_description=$(describe_port_owner "$port" || true)
+    if [ -n "$owner_description" ]; then
+        log_message "Port ${port} is still held by ${owner_description}"
+    fi
+    return 1
+}
+
+stop_upgrade_services() {
+    result=0
+    stop_component_processes "$CPA_PID_FILE" "$LEGACY_CPA_PID_FILE" "$CPA_BIN" 'CPA Manager Plus' || result=1
+    stop_component_processes "$CLI_PID_FILE" "$LEGACY_CLI_PID_FILE" "$CLI_BIN" 'CLIProxyAPI' || result=1
+    wait_for_port_release 18317 'CPA Manager Plus' || result=1
+    wait_for_port_release 8317 CLIProxyAPI || result=1
+    return "$result"
+}
+
+stop_verified_pid_waiting() {
+    pid=$1
+    expected=$2
+    label=$3
+    matcher=$4
+    [ -n "$pid" ] || return 0
+    waited=0
+    while ! "$matcher" "$pid" "$expected"; do
+        # A candidate may still be inside execve right after fork; only a
+        # vanished process is truly unowned.
+        kill -0 "$pid" 2>/dev/null || return 0
+        if [ "$waited" -ge 3 ]; then
+            log_message "Refused to signal unowned ${label} pid ${pid}."
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    stop_verified_pid "$pid" "$expected" "$label" "$matcher"
+}
+
+cleanup_startup() {
+    if [ "$STARTUP_CLEANUP" = true ]; then
+        STARTUP_CLEANUP=false
+        stop_verified_pid_waiting "$CPA_CANDIDATE_PID" "$CPA_BIN" 'CPA Manager Plus candidate' pid_matches
+        stop_verified_pid_waiting "$CLI_CANDIDATE_PID" "$CLI_BIN" 'CLIProxyAPI candidate' pid_matches
+        rm -f -- "$CPA_PID_FILE" "$CLI_PID_FILE"
+    fi
+}
+
+startup_interrupted() {
+    report_error 'CPA Manager Plus 启动被中断；已清理本次启动的进程。'
+    exit 1
+}
+
+arm_startup_cleanup() {
+    STARTUP_CLEANUP=true
+    trap 'cleanup_startup; release_lifecycle_lock' 0
+    trap 'startup_interrupted' 1 2 15
+}
+
+disarm_startup_cleanup() {
+    STARTUP_CLEANUP=false
+    trap release_lifecycle_lock 0
+    trap - 1 2 15
+}
+
+service_status() {
+    cli_pid_present=false
+    cpa_pid_present=false
+    [ -e "$CLI_PID_FILE" ] && cli_pid_present=true
+    [ -e "$CPA_PID_FILE" ] && cpa_pid_present=true
+    if [ "$cli_pid_present" = false ] && [ "$cpa_pid_present" = false ]; then
+        return 3
+    fi
+    owned_process_running "$CLI_PID_FILE" "$CLI_BIN" || return 1
+    owned_process_running "$CPA_PID_FILE" "$CPA_BIN" || return 1
+    cli_health=0
+    cpa_health=0
+    http_ready 'http://127.0.0.1:8317/healthz' || cli_health=$?
+    http_ready 'http://127.0.0.1:18317/health' || cpa_health=$?
+    # Transient load spikes can delay one HTTP probe past its timeout; retry
+    # before reporting a partial state so the platform does not record a
+    # crash for a healthy, busy service.
+    status_retry=0
+    while { [ "$cli_health" -ne 0 ] || [ "$cpa_health" -ne 0 ]; } && [ "$status_retry" -lt 2 ]; do
+        sleep 1
+        if [ "$cli_health" -ne 0 ]; then
+            cli_health=0
+            http_ready 'http://127.0.0.1:8317/healthz' || cli_health=$?
+        fi
+        if [ "$cpa_health" -ne 0 ]; then
+            cpa_health=0
+            http_ready 'http://127.0.0.1:18317/health' || cpa_health=$?
+        fi
+        status_retry=$((status_retry + 1))
+    done
+    [ "$cli_health" -eq 0 ] && [ "$cpa_health" -eq 0 ] || return 1
+    return 0
+}
+
+wait_for_service() {
+    pid=$1
+    expected=$2
+    url=$3
+    label=$4
+    timeout=$5
+    waited=0
+    identity_waited=0
+    while [ "$waited" -lt "$timeout" ]; do
+        if ! pid_matches "$pid" "$expected"; then
+            # nohup/env replace their image a few ms after fork, and a large
+            # static binary can sit in execve longer under cold cache. Only a
+            # vanished process is a real early exit.
+            kill -0 "$pid" 2>/dev/null || {
+                report_error "${label} 启动后提前退出；请检查应用日志。"
+                return 1
+            }
+            if [ "$identity_waited" -ge 10 ]; then
+                report_error "无法确认 ${label} 启动进程身份；请检查应用日志。"
+                return 1
+            fi
+            identity_waited=$((identity_waited + 1))
+            sleep 1
+            waited=$((waited + 1))
+            continue
+        fi
+        ready=0
+        http_ready "$url" || ready=$?
+        if [ "$ready" -eq 0 ]; then
+            return 0
+        fi
+        if [ "$ready" -eq 2 ]; then
+            report_error "缺少 curl 或 wget，无法检查 ${label} 健康状态。"
+            return 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    report_error "${label} 未在 ${timeout} 秒内就绪；请检查应用日志。"
+    return 1
+}
+
+start_service() {
+    current=0
+    service_status || current=$?
+    if [ "$current" -eq 0 ]; then
+        log_message 'CPA Manager Plus is already running.'
+        return 0
+    fi
+    if [ "$current" -eq 1 ]; then
+        log_message 'Repairing partial CPA Manager Plus service state before startup.'
+    else
+        log_message 'Checking for orphaned CPA Manager Plus processes before startup.'
+    fi
+    stop_upgrade_services || return 1
+
+    validate_runtime || return 1
+    mkdir -p "$CLI_VAR/auths" "$CLI_VAR/logs" "$CLI_VAR/plugins" "$CPA_VAR" "$RUN_DIR" "$LOG_DIR" "$TRIM_PKGHOME"
+    chmod 0700 "$CLI_VAR/auths" "$CLI_VAR/logs" "$CLI_VAR/plugins" "$CPA_VAR" "$RUN_DIR" "$LOG_DIR" "$TRIM_PKGHOME"
+    ensure_port_free 8317 CLIProxyAPI || return 1
+    ensure_port_free 18317 'CPA Manager Plus' || return 1
+
+    arm_startup_cleanup
+    log_message 'Starting CLIProxyAPI on port 8317.'
+    (
+        cd "$CLI_VAR"
+        exec nohup "$CLI_BIN" -config "$CLI_CONFIG" >>"$CLI_LOG" 2>&1
+    ) &
+    CLI_CANDIDATE_PID=$!
+    wait_for_service "$CLI_CANDIDATE_PID" "$CLI_BIN" 'http://127.0.0.1:8317/healthz' CLIProxyAPI 45 || return 1
+    printf '%s\n' "$CLI_CANDIDATE_PID" >"$CLI_PID_FILE"
+
+    log_message 'Starting CPA Manager Plus on port 18317.'
+    (
+        HOME="$TRIM_PKGHOME"
+        HTTP_ADDR='0.0.0.0:18317'
+        CPA_UPSTREAM_URL='http://127.0.0.1:8317'
+        CPA_MANAGER_ADMIN_KEY_FILE="$ADMIN_KEY_FILE"
+        CPA_MANAGEMENT_KEY_FILE="$MANAGEMENT_KEY_FILE"
+        USAGE_DATA_DIR="$CPA_VAR"
+        USAGE_DB_PATH="$CPA_VAR/usage.sqlite"
+        CPA_MANAGER_DATA_KEY_PATH="$CPA_VAR/data.key"
+        USAGE_COLLECTOR_MODE='auto'
+        export HOME HTTP_ADDR CPA_UPSTREAM_URL CPA_MANAGER_ADMIN_KEY_FILE \
+               CPA_MANAGEMENT_KEY_FILE USAGE_DATA_DIR USAGE_DB_PATH \
+               CPA_MANAGER_DATA_KEY_PATH USAGE_COLLECTOR_MODE
+        exec nohup "$CPA_BIN" >>"$CPA_LOG" 2>&1
+    ) &
+    CPA_CANDIDATE_PID=$!
+    wait_for_service "$CPA_CANDIDATE_PID" "$CPA_BIN" 'http://127.0.0.1:18317/health' 'CPA Manager Plus' 60 || return 1
+    printf '%s\n' "$CPA_CANDIDATE_PID" >"$CPA_PID_FILE"
+    disarm_startup_cleanup
+    log_message 'CPA Manager Plus and CLIProxyAPI are healthy.'
+}
+
+stop_service() {
+    result=0
+    stop_upgrade_services || result=1
+    if [ "$result" -eq 0 ]; then
+        log_message 'CPA Manager Plus and CLIProxyAPI stopped.'
+    else
+        report_error 'CPA Manager Plus 或 CLIProxyAPI 未能完全停止；端口可能仍被占用。'
+    fi
+    return "$result"
+}
+
+case ${1:-} in
+    start)
+        acquire_lifecycle_lock || exit 1
+        start_service
+        ;;
+    stop)
+        acquire_lifecycle_lock || exit 1
+        stop_service
+        ;;
+    stop-for-upgrade)
+        acquire_lifecycle_lock || exit 1
+        stop_upgrade_services
+        ;;
+    restart)
+        acquire_lifecycle_lock || exit 1
+        stop_service
+        start_service
+        ;;
+    status)
+        wait_for_lifecycle_quiet
+        acquire_lifecycle_lock || exit 1
+        result=0
+        service_status || result=$?
+        case "$result" in
+            0) exit 0 ;;
+            3)
+                printf '%s\n' 'CPA Manager Plus is stopped.' >"$ERROR_LOG" 2>/dev/null || :
+                exit 3
+                ;;
+            *)
+                report_error 'CPA Manager Plus 处于部分运行、PID 过期或健康检查失败状态。'
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        report_error "不支持的操作：${1:-<empty>}"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,21 @@
+name: Build and release Sub2API
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['sub2api-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-sub2api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-app.yml
+    with:
+      app: sub2api

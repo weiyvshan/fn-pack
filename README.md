@@ -1,16 +1,40 @@
 # fn-pack
 
-fnOS 应用打包工作区。当前只收录 deepseek-harness 的打包工程，其余应用后续按同一结构陆续加入 `apps/<appname>/`。
+fnOS 应用发布源码仓库，工程统一放在 `apps/<appname>/`，复用 `.agents/skills/fnnas-app-creator/` 的 fnpack 与审计工具。
 
-## 目录结构
+| 应用 | 方式 | 使用与构建 | 更新记录 |
+| --- | --- | --- | --- |
+| deepseek-harness | 原生 | 本文下方 | [CHANGELOG](apps/deepseek-harness/CHANGELOG.md) |
+| CPA Manager Plus | 原生双服务 | [README](apps/cpa-manager-plus/README.md) | [CHANGELOG](apps/cpa-manager-plus/CHANGELOG.md) |
+| Sub2API | Docker | [README](apps/sub2api/README.md) | [CHANGELOG](apps/sub2api/CHANGELOG.md) |
 
-- `apps/deepseek-harness/` — deepseek-harness 打包工程（manifest、runtime.lock.json、四个锁定源码补丁、构建与自检脚本）
-- `.agents/skills/fnnas-app-creator/` — fnOS 打包技能，含 linux-amd64 的 `fnpack` 与审计脚本
-- `.tmp/deepseek-harness-runtime-cache/` — 按锁定 URL 下载的 pnpm 与 Landlock 安装包缓存，**不入库**
-- `.tmp/deepseek-harness-upstream/` — 上游源码检出位置，**不入库**，由 `bootstrap.sh` 拉取
-- `build/` — 最终 FPK 构建产物，作为 GitHub Release 附件分发，不提交到 Git
+## 维护约定
 
-## 目标机要求
+- Git 只保留当前打包源码、锁文件、必要许可、测试及文档，不收录停用插件、旧补丁、调试流水或设备备份。
+- 上游版本和摘要由锁文件维护；下载内容放 `.tmp/`，每次使用前校验。FPK 放 `build/`，日志与审计结果作为 CI Artifact 保留。
+- README 说明当前使用方式，CHANGELOG 记录打包历史；manifest 只放本版摘要，避免重复维护。
+- 发布采用 `<appname>-v<飞牛包版本>` tag，不使用上游组件版本。构建成功与实机验收分别记录。
+
+## CPA Manager Plus 与 Sub2API 发布
+
+两个独立入口分别为 [CPA Manager Plus](.github/workflows/release-cpa-manager-plus.yml) 和 [Sub2API](.github/workflows/release-sub2api.yml)，共用内部构建发布模板以减少重复。
+
+Actions 中手动运行只构建并上传 FPK、SHA256SUMS、发布说明及日志。推送版本 tag 才创建 GitHub Release：
+
+```bash
+git tag cpa-manager-plus-v1.0.15
+git push origin cpa-manager-plus-v1.0.15
+
+# Independently release Sub2API.
+git tag sub2api-v1.18
+git push origin sub2api-v1.18
+```
+
+工作流要求 tag 与 manifest 完全一致，发布前复验产物摘要，不覆盖已有 Release。
+两个工程不需要 dsh 的 Node 编译链或内存配置；Sub2API 打包阶段不启动 Docker。
+实际安装、升级和运行状态仍需在目标 NAS 验收；私有仓库附件沿用仓库访问权限。
+
+## deepseek-harness 目标机要求
 
 - **x86_64 Linux**。Windows 用 WSL2；macOS 走不通：`fnpack` 只有 linux-amd64 版本，构建链还要实跑 5 个真实 Landlock 内核用例。
 - Node.js >= 22.19（推荐 24）

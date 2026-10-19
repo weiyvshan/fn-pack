@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "resolved_at": "2026-10-17",
+  "images": {
+    "sub2api": {
+      "repository": "docker.io/weishaw/sub2api",
+      "tag": "0.2.17",
+      "manifest_digest": "sha256:44b59fc74b0b582750ef5f38146782db177767ef9d3f34351f1c75c157b1bb88",
+      "reference": "docker.io/weishaw/sub2api:0.2.17@sha256:44b59fc74b0b582750ef5f38146782db177767ef9d3f34351f1c75c157b1bb88",
+      "platform_manifests": {
+        "linux/amd64": "sha256:3578ce8dcddd4befa6817448472166f1501120f7876029c641de698a1a8e2ee7",
+        "linux/arm64": "sha256:bc0808e03a5e40695155a34c1e926a91167c3c60808341f31a9df14aaedbdee8"
+      },
+      "source": {
+        "repository": "https://github.com/Wei-Shaw/sub2api",
+        "ref": "refs/tags/v0.2.17",
+        "tag_object": "6d6c4e701a463dcf83c261e8428e93423d6c0b3e",
+        "commit": "060d0160417782cd962a0c7f460f6cd4565d4916",
+        "version": "0.2.17",
+        "evidence": "Peeled annotated Git tag, official release, and Docker Hub tag metadata"
+      }
+    },
+    "postgres": {
+      "repository": "docker.io/library/postgres",
+      "tag": "18-alpine",
+      "manifest_digest": "sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2",
+      "reference": "docker.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2",
+      "platform_manifests": {
+        "linux/amd64": "sha256:63bdc97d67b5133bf0e5ebd500bec6d046fa851dc81340d838f0347e616107e8",
+        "linux/arm64/v8": "sha256:cbe15165195f7f2d63885b4d990fdec7b602248533cb05bd992284a45a58fed3"
+      },
+      "source": {
+        "repository": "https://github.com/docker-library/postgres",
+        "path": "18/alpine3.24",
+        "commit": "e00e1bd34ec5c8a8e7ad89b273b3d42efaf6d5bc",
+        "version": "18.6-alpine3.24",
+        "evidence": "OCI index annotations"
+      }
+    },
+    "redis": {
+      "repository": "docker.io/library/redis",
+      "tag": "8-alpine",
+      "manifest_digest": "sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241",
+      "reference": "docker.io/library/redis:8-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241",
+      "platform_manifests": {
+        "linux/amd64": "sha256:a6a88248ad5b0c724b7f2b380b7d21f46097db158b2b077ef85bcb97f90aee3a",
+        "linux/arm64/v8": "sha256:0f8941c253cc39d98439a608dcb4f0a840b54421cc5109a68c72b2d2d223cea5"
+      },
+      "source": {
+        "repository": "https://github.com/redis/docker-library-redis",
+        "path": "alpine",
+        "commit": "0a24b09f88a6cb8feaf130d4eca7bd6b9b4c73a3",
+        "version": "8.10.0-alpine",
+        "evidence": "OCI index annotations"
+      }
+    }
+  }
+}

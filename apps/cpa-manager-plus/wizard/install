@@ -1,0 +1,31 @@
+[
+  {
+    "stepTitle": "CPA Manager Plus 初始化",
+    "items": [
+      {
+        "type": "password",
+        "field": "wizard_cpamp_admin_key",
+        "label": "CPA Manager Plus 管理员密钥（16-128 个字符）",
+        "required": true,
+        "min": 16,
+        "max": 128,
+        "pattern": "^[A-Za-z0-9._~-]{16,128}$",
+        "tip": "长度必须为 16-128 个字符；支持字母、数字和 . _ ~ -。用于登录管理页面，安装日志不会记录该值。"
+      },
+      {
+        "type": "password",
+        "field": "wizard_cli_api_key",
+        "label": "CLIProxyAPI 初始 API Key",
+        "required": true,
+        "min": 16,
+        "max": 128,
+        "pattern": "^[A-Za-z0-9._~-]{16,128}$",
+        "tip": "供 OpenAI 兼容客户端访问 8317 端口。安装后可在管理页面中维护。"
+      },
+      {
+        "type": "tips",
+        "helpText": "系统会另外生成仅供两个内置服务通信的管理密钥。所有密钥只写入应用私有配置目录。"
+      }
+    ]
+  }
+]

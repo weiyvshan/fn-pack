@@ -1,0 +1,25 @@
+{
+  "port-config": {
+    "protocol-file": "sub2api.sc"
+  },
+  "data-share": {
+    "shares": [
+      {
+        "name": "sub2api",
+        "permission": {
+          "rw": [
+            "sub2api"
+          ]
+        }
+      }
+    ]
+  },
+  "docker-project": {
+    "projects": [
+      {
+        "name": "sub2api",
+        "path": "docker"
+      }
+    ]
+  }
+}

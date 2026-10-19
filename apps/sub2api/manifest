@@ -1,0 +1,16 @@
+appname                    = sub2api
+version                    = 1.18
+display_name               = Sub2API
+desc                       = AI API gateway for distributing and managing subscription API quotas.
+platform                   = all
+source                     = thirdparty
+maintainer                 = Wei-Shaw
+maintainer_url             = https://github.com/Wei-Shaw/sub2api
+distributor                = 为屿
+os_min_version             = 1.0.0
+desktop_uidir              = ui
+desktop_applaunchname      = sub2api.Application
+service_port               = 18081
+checkport                  = false
+changelog                  = Update Sub2API to 0.2.17. Limit administrator passwords to 12-72 allowed ASCII characters and preserve existing data and credentials. Back up matching database and application data before automatic migrations. ChatGPT OAuth and SetupToken accounts using GPT-5.5 require model remapping.
+fpk_version                = 1.18

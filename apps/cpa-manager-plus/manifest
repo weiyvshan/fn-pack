@@ -1,0 +1,17 @@
+appname=cpa-manager-plus
+version=1.0.15
+display_name=CPA Manager Plus
+desc=Manage CLIProxyAPI credentials, providers, usage, costs, quotas, and account health.
+platform=x86
+source=thirdparty
+maintainer=Seakee
+maintainer_url=https://github.com/seakee/CPA-Manager-Plus
+distributor=为屿
+os_min_version=1.1.8
+ctl_stop=true
+desktop_uidir=ui
+desktop_applaunchname=cpa-manager-plus.main
+service_port=18317
+checkport=false
+disable_authorization_path=true
+changelog=1.0.15: Update CPA Manager Plus to 1.14.7 and CLIProxyAPI to 8.0.32. Preserve existing configuration, credentials and data. Back up the database and archive before upgrading. Existing large databases need one offline cleanup-derived run after stopping the manager to build the new latency index.

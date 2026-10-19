@@ -1,0 +1,161 @@
+name: Shared fnOS package build and release
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP: ${{ inputs.app }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      filename: ${{ steps.metadata.outputs.filename }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate package version and tag
+        id: metadata
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          app = os.environ['APP']
+          if app not in ('cpa-manager-plus', 'sub2api'):
+              raise SystemExit('Unsupported application')
+          project = pathlib.Path('apps') / app
+          fields = {}
+          for line in (project / 'manifest').read_text().splitlines():
+              if '=' in line and not line.lstrip().startswith(';'):
+                  key, value = line.split('=', 1)
+                  fields[key.strip()] = value.strip()
+          version, platform = fields['version'], fields['platform']
+          if fields['appname'] != app or not re.fullmatch(r'[0-9]+(?:\.[0-9]+)+', version):
+              raise SystemExit('Invalid package identity or version')
+          if platform not in ('x86', 'all'):
+              raise SystemExit('Unsupported package platform')
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              if os.environ['GITHUB_REF_NAME'] != f'{app}-v{version}':
+                  raise SystemExit('Tag must exactly match the manifest version')
+          changelog = (project / 'CHANGELOG.md').read_text()
+          if f'## {version}' not in changelog.splitlines():
+              raise SystemExit('Current package version is missing from CHANGELOG.md')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\nfilename={app}_{version}_{platform}.fpk\n')
+          PY
+
+      - name: Prepare isolated test directory
+        run: |
+          mkdir -p build .tmp
+          if [[ "$APP" == sub2api ]]; then
+            # This fixture requires an fnOS-like prefix on the disposable runner.
+            sudo install -d -m 0700 -o "$(id -u)" -g "$(id -g)" /vol1/fn-pack-ci
+            echo 'TMPDIR=/vol1/fn-pack-ci' >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/cache@v4
+        if: inputs.app == 'cpa-manager-plus'
+        with:
+          path: .tmp/cpa-manager-plus-binaries
+          key: cpamp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/cpa-manager-plus/binary.lock.json') }}
+
+      - name: Test, audit and build FPK
+        run: |
+          set -euo pipefail
+          for name in "${!TRIM_@}"; do unset "$name"; done
+          {
+            if [[ "$APP" == sub2api ]]; then
+              bash apps/sub2api/tests/installer.test.sh
+            fi
+            bash "apps/$APP/scripts/build-fpk.sh"
+            bash .agents/skills/fnnas-app-creator/scripts/audit_fnos_project.sh \
+              --project-path "apps/$APP" --format json > .tmp/audit.json
+          } 2>&1 | tee .tmp/build.log
+
+      - name: Generate checksums and release notes
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+        run: |
+          test -s "build/$FILENAME"
+          mkdir -p .tmp/release
+          cp "build/$FILENAME" .tmp/release/
+          (cd .tmp/release && sha256sum "$FILENAME" > SHA256SUMS)
+          python3 - <<'PY'
+          import os, pathlib
+          app, version = os.environ['APP'], os.environ['VERSION']
+          lines = pathlib.Path(f'apps/{app}/CHANGELOG.md').read_text().splitlines()
+          start = lines.index(f'## {version}')
+          end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
+          notes = f'# {app} {version} (fnOS)\n\n'
+          notes += f'Packaging commit: `{os.environ["GITHUB_SHA"]}`\n\n'
+          notes += 'Verify the FPK with SHA256SUMS and install through fnOS App Center.\n'
+          notes += 'CI tests and package verification do not replace device installation, upgrade and runtime acceptance.\n\n'
+          pathlib.Path('.tmp/release/release-notes.md').write_text(notes + '\n'.join(lines[start:end]).strip() + '\n')
+          PY
+
+      - name: Upload package and release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-${{ steps.metadata.outputs.version }}
+          path: .tmp/release/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .tmp/build.log
+            .tmp/audit.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: Publish tag release
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.app }}-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Publish verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+          FILENAME: ${{ needs.build.outputs.filename }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check SHA256SUMS
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "$APP $VERSION (fnOS)" \
+            --notes-file release-notes.md "$FILENAME" SHA256SUMS

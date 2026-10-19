@@ -1,0 +1,44 @@
+config-version: 8
+server:
+  host: "0.0.0.0"
+  port: 8317
+  tls:
+    enable: false
+    cert: ""
+    key: ""
+  commercial-mode: false
+
+management:
+  allow-remote: true
+  secret-key: "__CPA_MANAGEMENT_KEY__"
+  disable-control-panel: true
+  disable-auto-update-panel: true
+
+access:
+  api-keys:
+    - "__CLI_API_KEY__"
+
+routing:
+  strategy: "round-robin"
+  retry:
+    request-retry: 3
+
+oauth:
+  auth-dir: "__AUTH_DIR__"
+
+observability:
+  logs:
+    debug: false
+    logging-to-file: false
+    logs-max-total-size-mb: 0
+    error-logs-max-files: 10
+  usage:
+    usage-statistics-enabled: true
+    redis-usage-queue-retention-seconds: 3600
+  pprof:
+    enable: false
+    addr: "127.0.0.1:8316"
+
+plugins:
+  enabled: true
+  dir: "__PLUGIN_DIR__"

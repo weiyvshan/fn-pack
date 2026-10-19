@@ -1,0 +1,241 @@
+#!/bin/bash
+
+generate_hex_password() {
+    tr -dc '0-9a-f' </dev/urandom | head -c "${1:-64}"
+}
+
+is_valid_admin_email() {
+    printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+}
+
+is_valid_admin_password() {
+    local value="$1"
+    local length="${#value}"
+    # Upstream rejects passwords above 72 bytes, so the ASCII-only charset
+    # checked below keeps this character count equal to the byte count.
+    [ "$length" -ge 12 ] &&
+        [ "$length" -le 72 ] &&
+        printf '%s' "$value" | grep -Eq '^[A-Za-z0-9._~!@%^+=,:-]+$'
+}
+
+is_valid_runtime_secret() {
+    local value="$1"
+    local length="${#value}"
+    [ "$length" -ge 32 ] &&
+        [ "$length" -le 128 ] &&
+        printf '%s' "$value" | grep -Eq '^[A-Za-z0-9._~!@%^+=,:-]+$'
+}
+
+read_secret_value() {
+    local file="$1"
+    local key="$2"
+    local line
+    line=$(grep -m 1 "^${key}=" "$file" 2>/dev/null) || return 1
+    printf '%s' "${line#*=}"
+}
+
+load_existing_secrets() {
+    local file="$1"
+    DATABASE_PASSWORD=$(read_secret_value "$file" DATABASE_PASSWORD) || return 1
+    POSTGRES_PASSWORD=$(read_secret_value "$file" POSTGRES_PASSWORD) || return 1
+    REDIS_PASSWORD=$(read_secret_value "$file" REDIS_PASSWORD) || return 1
+    ADMIN_EMAIL=$(read_secret_value "$file" ADMIN_EMAIL) || return 1
+    ADMIN_PASSWORD=$(read_secret_value "$file" ADMIN_PASSWORD) || return 1
+    JWT_SECRET=$(read_secret_value "$file" JWT_SECRET) || return 1
+    TOTP_ENCRYPTION_KEY=$(read_secret_value "$file" TOTP_ENCRYPTION_KEY) || return 1
+
+    is_valid_runtime_secret "$DATABASE_PASSWORD" || return 1
+    [ "$DATABASE_PASSWORD" = "$POSTGRES_PASSWORD" ] || return 1
+    is_valid_runtime_secret "$REDIS_PASSWORD" || return 1
+    is_valid_admin_email "$ADMIN_EMAIL" || return 1
+    is_valid_admin_password "$ADMIN_PASSWORD" || return 1
+    is_valid_runtime_secret "$JWT_SECRET" || return 1
+    [ "${#TOTP_ENCRYPTION_KEY}" -eq 64 ] || return 1
+    printf '%s' "$TOTP_ENCRYPTION_KEY" | grep -Eq '^[0-9a-f]+$'
+}
+
+validate_install_credentials() {
+    local secrets_file="${TRIM_APPDEST}/docker/runtime-secrets/.sub2api-secrets"
+    if [ ! -f "$secrets_file" ] && [ -f "${TRIM_PKGVAR}/.sub2api-secrets" ]; then
+        secrets_file="${TRIM_PKGVAR}/.sub2api-secrets"
+    fi
+    if [ -f "$secrets_file" ]; then
+        if ! load_existing_secrets "$secrets_file"; then
+            if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+                printf '%s\n' 'Existing Sub2API credentials are incomplete or invalid.' > "$TRIM_TEMP_LOGFILE"
+            fi
+            if [ -n "${INST_LOG:-}" ]; then
+                printf '%s\n' 'Sub2API install validation failed: existing credentials are incomplete or invalid.' >> "$INST_LOG"
+            fi
+            return 1
+        fi
+        return 0
+    fi
+    if ! is_valid_admin_email "${wizard_admin_email:-}"; then
+        if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+            printf '%s\n' 'Sub2API administrator email is missing or invalid.' > "$TRIM_TEMP_LOGFILE"
+        fi
+        if [ -n "${INST_LOG:-}" ]; then
+            printf '%s\n' 'Sub2API install validation failed: administrator email is missing or invalid.' >> "$INST_LOG"
+        fi
+        return 1
+    fi
+    if ! is_valid_admin_password "${wizard_admin_password:-}"; then
+        if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+            printf '%s\n' 'Sub2API administrator password must be 12-128 supported ASCII characters.' > "$TRIM_TEMP_LOGFILE"
+        fi
+        if [ -n "${INST_LOG:-}" ]; then
+            printf '%s\n' 'Sub2API install validation failed: administrator password is missing or invalid.' >> "$INST_LOG"
+        fi
+        return 1
+    fi
+}
+
+write_legacy_secrets_file() {
+    local secrets_file="$1"
+    local secrets_tmp="${secrets_file}.tmp.$$"
+    umask 077
+    if ! cat > "$secrets_tmp" <<SECEOF
+DATABASE_PASSWORD=${DATABASE_PASSWORD}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+REDIS_PASSWORD=${REDIS_PASSWORD}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
+JWT_SECRET=${JWT_SECRET}
+TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
+SECEOF
+    then
+        rm -f -- "$secrets_tmp"
+        error_exit 'Cannot write the Sub2API credential file.'
+    fi
+    if ! chmod 600 "$secrets_tmp" || ! mv -f -- "$secrets_tmp" "$secrets_file"; then
+        rm -f -- "$secrets_tmp"
+        error_exit 'Cannot secure the Sub2API credential file.'
+    fi
+}
+
+write_runtime_secret_file() {
+    local name="$1"
+    local value="$2"
+    local destination="${RUNTIME_SECRETS_DIR}/${name}"
+    local temporary="${destination}.tmp.$$"
+    umask 077
+    if ! printf '%s' "$value" > "$temporary"; then
+        rm -f -- "$temporary"
+        error_exit 'Cannot write a Sub2API runtime credential file.'
+    fi
+    if ! chmod 600 "$temporary" || ! mv -f -- "$temporary" "$destination"; then
+        rm -f -- "$temporary"
+        error_exit 'Cannot secure a Sub2API runtime credential file.'
+    fi
+}
+
+write_runtime_secret_files() {
+    if ! mkdir -p -- "$RUNTIME_SECRETS_DIR" || ! chmod 700 "$RUNTIME_SECRETS_DIR"; then
+        error_exit 'Cannot create the private Sub2API runtime credential directory.'
+    fi
+    write_runtime_secret_file database_password "$DATABASE_PASSWORD"
+    write_runtime_secret_file redis_password "$REDIS_PASSWORD"
+    write_runtime_secret_file admin_email "$ADMIN_EMAIL"
+    write_runtime_secret_file admin_password "$ADMIN_PASSWORD"
+    write_runtime_secret_file jwt_secret "$JWT_SECRET"
+    write_runtime_secret_file totp_encryption_key "$TOTP_ENCRYPTION_KEY"
+}
+
+prepare_runtime_secrets() {
+    local secrets_file
+    RUNTIME_SECRETS_DIR="${TRIM_APPDEST}/docker/runtime-secrets"
+    secrets_file="${RUNTIME_SECRETS_DIR}/.sub2api-secrets"
+    if [ ! -f "$secrets_file" ] && [ -f "${TRIM_PKGVAR}/.sub2api-secrets" ]; then
+        secrets_file="${TRIM_PKGVAR}/.sub2api-secrets"
+    fi
+    install_log 'prepare_runtime_secrets: preparing credentials before first container start'
+    if [ -f "$secrets_file" ]; then
+        if ! load_existing_secrets "$secrets_file"; then
+            error_exit 'Existing Sub2API credentials are incomplete or invalid; preserve the file and repair it before reinstalling.'
+        fi
+        install_log 'prepare_runtime_secrets: loaded preserved credentials'
+    else
+        DATABASE_PASSWORD="$(generate_hex_password 64)"
+        POSTGRES_PASSWORD="$DATABASE_PASSWORD"
+        REDIS_PASSWORD="$(generate_hex_password 64)"
+        ADMIN_EMAIL="${wizard_admin_email}"
+        ADMIN_PASSWORD="${wizard_admin_password}"
+        JWT_SECRET="$(generate_hex_password 64)"
+        TOTP_ENCRYPTION_KEY="$(generate_hex_password 64)"
+        secrets_file="${RUNTIME_SECRETS_DIR}/.sub2api-secrets"
+        if ! mkdir -p -- "$RUNTIME_SECRETS_DIR" || ! chmod 700 "$RUNTIME_SECRETS_DIR"; then
+            error_exit 'Cannot prepare the packaged Sub2API runtime credential directory.'
+        fi
+        write_legacy_secrets_file "$secrets_file"
+        install_log 'prepare_runtime_secrets: generated fresh credentials'
+    fi
+    if [ "$secrets_file" != "${RUNTIME_SECRETS_DIR}/.sub2api-secrets" ]; then
+        if ! mkdir -p -- "$RUNTIME_SECRETS_DIR" || ! chmod 700 "$RUNTIME_SECRETS_DIR"; then
+            error_exit 'Cannot prepare the packaged Sub2API runtime credential directory.'
+        fi
+        write_legacy_secrets_file "${RUNTIME_SECRETS_DIR}/.sub2api-secrets"
+    fi
+    write_runtime_secret_files
+    install_log 'prepare_runtime_secrets: runtime credential files are ready'
+}
+
+service_preinst() {
+    :
+}
+
+service_postinst() {
+    prepare_runtime_secrets
+}
+
+service_preupgrade() {
+    prepare_runtime_secrets
+}
+
+service_save() {
+    if [ -z "${TMP_DIR:-}" ]; then
+        error_exit 'Sub2API upgrade temporary directory is unavailable.'
+    fi
+    local backup_dir="${TMP_DIR}/sub2api-runtime-secrets"
+    local runtime_secrets_dir="${TRIM_APPDEST}/docker/runtime-secrets"
+    if [ ! -d "$runtime_secrets_dir" ]; then
+        error_exit 'Cannot save missing Sub2API runtime credentials before upgrade.'
+    fi
+    if [ ! -f "${runtime_secrets_dir}/.sub2api-secrets" ]; then
+        error_exit 'Cannot save the missing Sub2API credential manifest before upgrade.'
+    fi
+    rm -rf -- "$backup_dir"
+    if ! mkdir -p -- "$backup_dir" || ! chmod 700 "$backup_dir"; then
+        error_exit 'Cannot create the private Sub2API upgrade credential backup.'
+    fi
+    if ! cp -p -- "${runtime_secrets_dir}/.sub2api-secrets" "$backup_dir/.sub2api-secrets"; then
+        error_exit 'Cannot save Sub2API runtime credentials before upgrade.'
+    fi
+    chmod 600 "$backup_dir/.sub2api-secrets"
+}
+
+service_restore() {
+    if [ -z "${TMP_DIR:-}" ]; then
+        error_exit 'Sub2API upgrade temporary directory is unavailable.'
+    fi
+    local backup_file="${TMP_DIR}/sub2api-runtime-secrets/.sub2api-secrets"
+    local runtime_secrets_dir="${TRIM_APPDEST}/docker/runtime-secrets"
+    if [ ! -f "$backup_file" ]; then
+        error_exit 'Cannot restore missing Sub2API runtime credentials after upgrade.'
+    fi
+    if ! mkdir -p -- "$runtime_secrets_dir" || ! chmod 700 "$runtime_secrets_dir"; then
+        error_exit 'Cannot prepare the upgraded Sub2API runtime credential directory.'
+    fi
+    if ! cp -p -- "$backup_file" "${runtime_secrets_dir}/.sub2api-secrets"; then
+        error_exit 'Cannot restore Sub2API runtime credentials after upgrade.'
+    fi
+    chmod 600 "${runtime_secrets_dir}/.sub2api-secrets"
+}
+
+service_postupgrade() {
+    prepare_runtime_secrets
+}
+
+service_postconfig() {
+    prepare_runtime_secrets
+}

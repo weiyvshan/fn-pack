@@ -1,6 +1,13 @@
 # Workspace scratch and local build caches
 /.tmp/
-/build/*.fpk
+/build/
+/vendor/
+/evidence/
+**/.tmp/
+
+# Keep only the empty credential directory placeholder in source control.
+/apps/sub2api/app/docker/runtime-secrets/*
+!/apps/sub2api/app/docker/runtime-secrets/.keep
 
 # Archived hand-deployed instances hold runtime keys and private backups;
 # archived FPK bodies are superseded releases. Neither belongs in history.

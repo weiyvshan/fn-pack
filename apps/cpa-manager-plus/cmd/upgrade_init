@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/installer"
+upgrade_init
+if ! "$SCRIPT_DIR/main" stop-for-upgrade; then
+    install_error '升级前无法安全停止旧版 CPA Manager Plus 进程；端口可能仍被占用。'
+    exit 1
+fi

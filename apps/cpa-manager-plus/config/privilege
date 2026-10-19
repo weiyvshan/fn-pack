@@ -1,0 +1,7 @@
+{
+  "defaults": {
+    "run-as": "package"
+  },
+  "username": "cpa-manager-plus",
+  "groupname": "cpa-manager-plus"
+}
