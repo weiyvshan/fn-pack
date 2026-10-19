@@ -271,7 +271,9 @@ done
 pnpm exec vitest run apps/cli/tests/args.spec.ts
 run_vitest_with_retries 3 --config vitest.e2e.config.ts apps/cli/tests/built-bin.e2e.ts
 node "${script_dir}/generate-source-runtime.mjs" "$source_root" "$runtime_root"
-pnpm --config.node-linker=hoisted install --offline --frozen-lockfile --ignore-scripts
+# Adding the runtime importer can require peer metadata absent from a clean CI
+# store. Prefer cached data but allow registry reads; never relax the lockfile.
+pnpm --config.node-linker=hoisted install --prefer-offline --frozen-lockfile --ignore-scripts
 # The deploy filter selects only the runtime closure, so the workspace-level patch
 # declarations for packages outside it (electron signing, spreadsheet editing) would
 # otherwise fail pnpm 11's unused-patch audit. Downgrade that audit to a warning for

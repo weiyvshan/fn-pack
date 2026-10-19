@@ -996,8 +996,10 @@ matches "$SOURCE_BUILD" '\$\{#source_commit\}.*-eq 40' \
     'The build must consume the locked official Git source without an upstream FPK (locked source commit validation).'
 matches "$SOURCE_BUILD" 'install -D -m 0755.*landlock-run' \
     'The build must consume the locked official Git source without an upstream FPK (landlock install).'
-seq_match "$SOURCE_BUILD" 'generate-source-runtime.mjs' 'install --offline --frozen-lockfile' ||
-    fail 'The source build must generate the runtime before the frozen offline install.'
+seq_match "$SOURCE_BUILD" 'generate-source-runtime.mjs' 'install --prefer-offline --frozen-lockfile --ignore-scripts' ||
+    fail 'The source build must generate the runtime before the frozen install with metadata fallback.'
+not_contains "$SOURCE_BUILD" 'install --offline' \
+    'The generated runtime importer must permit missing registry metadata to be fetched on clean CI runners.'
 seq_match "$SOURCE_BUILD" 'materialize-workspace-links.sh' 'chmod 0755 "$landlock_launcher"' ||
     fail 'The source build must materialize workspace links before installing the Landlock launcher.'
 matches "$SOURCE_BUILD" 'find "\$sharp_package_lib" -maxdepth 1 -type f -name ' "\*\.node'" ||
