@@ -54,7 +54,7 @@ pnpm_config_registry=https://registry.npmmirror.com ./bootstrap.sh
 
 - 只有 tag 构建成功且产物校验通过，发布 job 才会创建 Release 并附上 FPK 与 `SHA256SUMS`。不会静默覆盖已有 Release。
 - 依赖压缩包由 `actions/cache` 缓存；不缓存上游工作树，避免可变源码状态进入发布。
-- 默认使用 `ubuntu-24.04` 与 Node.js 24.20.0。低于约 14 GiB RAM 时，工作流检查磁盘余量，并使用 runner 的免密 sudo 补足 RAM + swap 至至少 18 GiB，同时预留 10 GiB 构建磁盘空间；不关闭既有 swap。该低内存方案仍待 GitHub 实跑验证，可能明显变慢或 OOM，失败时应考虑至少 16 GB 的 larger runner。构建超时为 180 分钟，资源诊断和 `/usr/bin/time -v` 统计随日志上传。
+- 默认使用 `ubuntu-24.04` 与 Node.js 24.20.0。低于约 14 GiB RAM 时，工作流检查磁盘余量，并使用 runner 的免密 sudo 补足 RAM + swap 至至少 18 GiB，同时预留 10 GiB 构建磁盘空间；不关闭既有 swap。空间不足时，仅在 GitHub 托管的临时 runner 上按需移除固定路径的 Android、.NET、Haskell 预装 SDK，清理后重新检查空间；不会对 self-hosted runner 自动清理。该低内存方案仍待 GitHub 实跑验证，可能明显变慢或 OOM，失败时应考虑至少 16 GB 的 larger runner。构建超时为 180 分钟，资源诊断和 `/usr/bin/time -v` 统计随日志上传。
 - 手动构建仅需读取仓库权限；发布 job 才获得 `contents: write`，无需额外 PAT。私有仓库的 Release 附件仍受仓库访问权限限制。
 - CI 成功不代表真机 UI、冷启动、升级与沙箱功能全部验收通过。发布说明附带应用变更记录及验证限制。
 

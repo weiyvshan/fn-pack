@@ -63,6 +63,8 @@ jobs:
           test -f .agents/skills/fnnas-app-creator/bin/fnpack-1.2.3-linux-amd64
 
       - name: Prepare memory and swap for low-memory runner
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           mkdir -p build
           # Keep diagnostics even when resource preparation or compilation fails.
@@ -80,8 +82,31 @@ jobs:
               # Leave 10 GiB beyond the swap allocation for source and build output.
               required_kib=$(((swap_gib + 10) * 1024 * 1024))
               if (( available_kib < required_kib )); then
-                echo "Insufficient disk for ${swap_gib} GiB swap plus 10 GiB build reserve."
-                exit 1
+                if [[ "$RUNNER_ENVIRONMENT" != github-hosted ]]; then
+                  echo 'Automatic SDK cleanup is restricted to disposable GitHub-hosted runners.'
+                  exit 1
+                fi
+                # Fixed, unrelated SDK paths only; keep Node, Python, GCC and system tools.
+                for sdk in /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup; do
+                  available_kib=$(df -Pk "$RUNNER_TEMP" | awk 'END {print $4}')
+                  if (( available_kib >= required_kib )); then break; fi
+                  if [[ -d "$sdk" && ! -L "$sdk" ]]; then
+                    resolved=$(readlink -f -- "$sdk")
+                    if [[ "$resolved" != "$sdk" ]]; then
+                      echo "Refusing cleanup of redirected SDK path: $sdk -> $resolved"
+                      exit 1
+                    fi
+                    echo "Removing unused preinstalled SDK from temporary runner: $resolved"
+                    sudo -n du -sh -- "$resolved"
+                    sudo -n rm -rf -- "$resolved"
+                  fi
+                done
+                available_kib=$(df -Pk "$RUNNER_TEMP" | awk 'END {print $4}')
+                df -h . "$RUNNER_TEMP"
+                if (( available_kib < required_kib )); then
+                  echo "Still insufficient disk for ${swap_gib} GiB swap plus 10 GiB build reserve; use a larger runner."
+                  exit 1
+                fi
               fi
               swapfile="$RUNNER_TEMP/fn-pack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.swap"
               test ! -e "$swapfile"
