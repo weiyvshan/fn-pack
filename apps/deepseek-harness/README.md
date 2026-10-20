@@ -7,7 +7,7 @@ the platform specification.
 ## Package contract
 
 - App identity: `deepseek-harness`
-- Package version (independent fnOS release series): `0.0.20`
+- Package version (independent fnOS release series): `0.0.22`
 - Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.2`, built from official release commit `687f282e8625c6b8d11ff58211a90524be2e4317`
 - Platform: x86 only; the source runtime is built and tested as Linux x86-64
 - Runtime dependency: `nodejs_v24`

@@ -1,5 +1,5 @@
 appname                    = deepseek-harness
-version                    = 0.0.21
+version                    = 0.0.22
 display_name               = DeepSeek Harness
 desc                       = DeepSeek 官方 Agent Harness 的 fnOS 安全封装；仅通过统一网关向管理员开放，运行时由锁定的官方源码直接构建。
 platform                   = x86
