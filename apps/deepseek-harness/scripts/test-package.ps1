@@ -447,7 +447,7 @@ foreach ($noProxyVariable in @('NO_PROXY', 'no_proxy', 'npm_config_noproxy')) {
 if ($mainText -notmatch '(?m)^\s+"\$NODE_BIN" --use-env-proxy "\$DSH_ENTRY" web --port "\$PORT" --trusted-host 127\.0\.0\.1') {
   throw 'The configured-proxy DSH command must enable Node environment proxy support.'
 }
-if ($mainText -notmatch '(?m)^\s+nohup "\$NODE_BIN" "\$DSH_ENTRY" web --port "\$PORT" --trusted-host 127\.0\.0\.1') {
+if ($mainText -notmatch '(?m)^\s+start_owned_group "\$PID_FILE" "\$NODE_BIN" "\$DSH_ENTRY" web --port "\$PORT" --trusted-host 127\.0\.0\.1') {
   throw 'The no-proxy DSH command must remain free of the proxy switch and injected environment.'
 }
 if ($mainText -notmatch '(?s)select_terminal_shell\(\) \{.*?\[ -x /bin/bash \].*?SHELL=/bin/bash.*?\[ -x /bin/sh \].*?SHELL=/bin/sh.*?export SHELL.*?\}' -or

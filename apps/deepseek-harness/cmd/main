@@ -101,7 +101,9 @@ pid_matches() {
   pid=$1
   expected=$2
   [ -r "/proc/${pid}/cmdline" ] || return 1
-  command_line=$(tr '\000' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)
+  # The error output is redirected before the input, so a process that exits
+  # between the two does not print a message.
+  command_line=$(tr '\000' ' ' 2>/dev/null <"/proc/${pid}/cmdline" || true)
   case "$command_line" in
     *"$expected"*) return 0 ;;
     *) return 1 ;;
@@ -143,14 +145,17 @@ stop_owned_process() {
       rm -f -- "$pid_file"
       return 0
     fi
-    kill -TERM "$pid" 2>/dev/null || true
+    # The process group is read while the process is still alive, so a group
+    # that is signalled is always the group this installation owns.
+    pgid=$(process_group_of "$pid" 2>/dev/null || true)
+    signal_owned_group "$pid" "$pgid" TERM
     waited=0
     while kill -0 "$pid" 2>/dev/null && pid_matches "$pid" "$expected" && [ "$waited" -lt 10 ]; do
       sleep 1
       waited=$((waited + 1))
     done
     if kill -0 "$pid" 2>/dev/null && pid_matches "$pid" "$expected"; then
-      kill -KILL "$pid" 2>/dev/null || true
+      signal_owned_group "$pid" "$pgid" KILL
       sleep 1
     fi
   fi
@@ -257,10 +262,32 @@ select_terminal_shell() {
   log_message "Selected plugin terminal shell: ${SHELL}."
 }
 
+start_owned_group() {
+  pid_file=$1
+  shift
+  rm -f -- "$pid_file"
+  # The process reports its own PID because setsid forks when the caller
+  # already leads a process group, so $! would name the wrong process.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid sh -c 'printf "%s\n" "$$" >"$1.tmp" && mv -f "$1.tmp" "$1"; shift; exec nohup "$@"' sh "$pid_file" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
+  else
+    nohup sh -c 'printf "%s\n" "$$" >"$1.tmp" && mv -f "$1.tmp" "$1"; shift; exec "$@"' sh "$pid_file" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
+  fi
+  waited=0
+  while [ "$waited" -lt 10 ]; do
+    if [ -s "$pid_file" ]; then
+      read_pid "$pid_file" >/dev/null 2>&1 && return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
 start_dsh_process() {
   if [ -n "$PROXY_URL" ]; then
     log_message "Starting DSH with the application-configured HTTP proxy."
-    nohup env \
+    start_owned_group "$PID_FILE" env \
       HTTP_PROXY="$PROXY_URL" \
       HTTPS_PROXY="$PROXY_URL" \
       http_proxy="$PROXY_URL" \
@@ -270,11 +297,12 @@ start_dsh_process() {
       npm_config_proxy="$PROXY_URL" \
       npm_config_https_proxy="$PROXY_URL" \
       npm_config_noproxy="127.0.0.1,localhost" \
-      "$NODE_BIN" --use-env-proxy "$DSH_ENTRY" web --port "$PORT" --trusted-host 127.0.0.1 >>"$LOG_FILE" 2>&1 &
+      "$NODE_BIN" --use-env-proxy "$DSH_ENTRY" web --port "$PORT" --trusted-host 127.0.0.1 || return 1
   else
-    nohup "$NODE_BIN" "$DSH_ENTRY" web --port "$PORT" --trusted-host 127.0.0.1 >>"$LOG_FILE" 2>&1 &
+    start_owned_group "$PID_FILE" "$NODE_BIN" "$DSH_ENTRY" web --port "$PORT" --trusted-host 127.0.0.1 || return 1
   fi
-  DSH_PID=$!
+  DSH_PID=$(read_pid "$PID_FILE" 2>/dev/null || true)
+  [ -n "$DSH_PID" ]
 }
 
 select_loopback_port() {
@@ -491,8 +519,10 @@ start_service() {
   }
   arm_startup_cleanup
   if [ "$REUSE_BACKEND" != true ]; then
-    start_dsh_process
-    printf '%s\n' "$DSH_PID" >"$PID_FILE"
+    start_dsh_process || {
+      report_error "DeepSeek Harness 后端进程无法启动。"
+      return 1
+    }
 
     waited=0
     while [ "$waited" -lt 45 ]; do
@@ -525,9 +555,10 @@ start_service() {
   # turns that delay into a failed start.
   rm -f -- "$SOCKET_PATH"
   log_message "Starting authenticated gateway proxy."
-  nohup "$NODE_BIN" "$PROXY_ENTRY" "$SOCKET_PATH" "$GATEWAY_PREFIX" "127.0.0.1:${PORT}" "$GATEWAY_COMPAT_PATH" "$DSH_PROFILES_ROOT" "$AUTH_TOKEN_FILE" "$DSH_PID" >>"$LOG_FILE" 2>&1 &
-  proxy_pid=$!
-  printf '%s\n' "$proxy_pid" >"$PROXY_PID_FILE"
+  start_owned_group "$PROXY_PID_FILE" "$NODE_BIN" "$PROXY_ENTRY" "$SOCKET_PATH" "$GATEWAY_PREFIX" "127.0.0.1:${PORT}" "$GATEWAY_COMPAT_PATH" "$DSH_PROFILES_ROOT" "$AUTH_TOKEN_FILE" "$DSH_PID" || {
+    report_error "统一网关代理进程无法启动。"
+    return 1
+  }
 
   # A reused backend has been running and answering long before this start,
   # so it does not need the settling window that a fresh backend does.

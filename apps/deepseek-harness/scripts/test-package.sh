@@ -254,6 +254,7 @@ list_shell_files() {
         "$PROJECT/tests/pnpm-launcher.test.sh" \
         "$PROJECT/tests/dsh-launcher.test.sh" \
         "$PROJECT/tests/main-lifecycle.test.sh" \
+        "$PROJECT/tests/process-group.test.sh" \
         "$PROJECT/tests/skill-creator.test.sh" \
         "$BUNDLED_SKILL_CREATOR_ROOT/scripts/generate_openai_yaml.sh" \
         "$BUNDLED_SKILL_CREATOR_ROOT/scripts/init_skill.sh" \
@@ -393,6 +394,7 @@ fi
 "$BASH_BIN" "$PROJECT/tests/pnpm-launcher.test.sh" || fail 'pnpm launcher tests failed.'
 "$BASH_BIN" "$PROJECT/tests/dsh-launcher.test.sh" || fail 'dsh launcher tests failed.'
 "$BASH_BIN" "$PROJECT/tests/main-lifecycle.test.sh" || fail 'main lifecycle tests failed.'
+"$BASH_BIN" "$PROJECT/tests/process-group.test.sh" || fail 'process group tests failed.'
 "$BASH_BIN" "$PROJECT/tests/skill-creator.test.sh" || fail 'skill-creator tests failed.'
 "$NODE_BIN" "$PROJECT/tests/generate-source-runtime.test.mjs" || fail 'generate-source-runtime tests failed.'
 "$NODE_BIN" "$PROJECT/tests/prune-source-runtime.test.mjs" || fail 'prune-source-runtime tests failed.'
@@ -788,7 +790,7 @@ for no_proxy_variable in NO_PROXY no_proxy npm_config_noproxy; do
 done
 matches "$MAIN" '^[[:space:]]+"\$NODE_BIN" --use-env-proxy "\$DSH_ENTRY" web --port "\$PORT" --trusted-host 127\.0\.0\.1' \
     'The configured-proxy DSH command must enable Node environment proxy support.'
-matches "$MAIN" '^[[:space:]]+nohup "\$NODE_BIN" "\$DSH_ENTRY" web --port "\$PORT" --trusted-host 127\.0\.0\.1' \
+matches "$MAIN" '^[[:space:]]+start_owned_group "\$PID_FILE" "\$NODE_BIN" "\$DSH_ENTRY" web --port "\$PORT" --trusted-host 127\.0\.0\.1' \
     'The no-proxy DSH command must remain free of the proxy switch and injected environment.'
 
 # Startup must export a controlled bash-or-sh terminal shell.

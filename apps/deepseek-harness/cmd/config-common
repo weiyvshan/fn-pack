@@ -222,6 +222,44 @@ stop_verified_process() {
   ! process_identity_matches "$pid" "$expected_uid" "$expected_marker" "$proc_root"
 }
 
+# Read the process group of a process.
+#
+# The command name in /proc is wrapped in parentheses and can contain spaces
+# and parentheses, so the fields after the last closing parenthesis are read
+# instead. They are the state, the parent process and the process group.
+process_group_of() {
+  pid=$1
+  proc_root=${2:-/proc}
+  stat_file="${proc_root}/${pid}/stat"
+  [ -r "$stat_file" ] || return 1
+  fields=$(sed 's/^.*) //' "$stat_file" 2>/dev/null) || return 1
+  set -f
+  set -- $fields
+  set +f
+  [ "$#" -ge 3 ] || return 1
+  case "$3" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$3"
+}
+
+# Signal an owned process together with the process group it leads.
+#
+# The group is only signalled when the process leads it, so a signal can
+# never reach the platform or the lifecycle script. A process that does not
+# lead its group is signalled on its own, which keeps the behaviour of an
+# installation that was started before the process group was introduced.
+signal_owned_group() {
+  pid=$1
+  pgid=$2
+  signal=$3
+  if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then
+    kill "-${signal}" "-${pgid}" 2>/dev/null || true
+    return 0
+  fi
+  kill "-${signal}" "$pid" 2>/dev/null || true
+}
+
 cleanup_verified_legacy_processes() {
   app_dest=$1
   expected_uid=$2

@@ -101,6 +101,18 @@ if ! printf '%s\n' "$stability_window" | grep -Fq 'consecutive_misses=0'; then
   fail 'App Center startup does not reset the slow backend counter'
 fi
 
+# An owned process must lead its own process group, and the stop path must
+# signal that group, so a child that the service spawned cannot survive.
+grep -Fq 'start_owned_group' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not start owned processes in their own process group'
+grep -Fq 'signal_owned_group "$pid" "$pgid" TERM' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not stop the process group of an owned process'
+grep -Fq 'signal_owned_group "$pid" "$pgid" KILL' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not force stop the process group of an owned process'
+if grep -Eq '^\s*(nohup|env).*DSH_ENTRY.*&$' "$MAIN_SCRIPT"; then
+  fail 'App Center startup still starts the backend outside a process group'
+fi
+
 set +e
 output=$(
   TRIM_APPDEST="${FIXTURE}/app" \

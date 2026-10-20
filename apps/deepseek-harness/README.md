@@ -282,6 +282,13 @@ remaining startup steps instead of aborting. The gateway proxy starts as soon
 as the backend answers, so it comes up while the stability window runs
 instead of after it.
 
+The backend and the gateway proxy each run in their own process group, and
+the stop path signals the whole group instead of a single PID. A child that
+the service spawned therefore does not survive a stop. The group is only
+signalled when the process leads it, so a signal can never reach the platform
+or the lifecycle script, and an installation that was started before the
+process group was introduced keeps the single process behaviour.
+
 Before DSH starts, the lifecycle wrapper exports a controlled terminal shell:
 executable `/bin/bash` is preferred and `/bin/sh` is the fallback. This keeps
 plugins that honor `$SHELL` from selecting the fnOS package account's non-login
