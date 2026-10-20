@@ -33,3 +33,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# The Windows sandbox ACL diagnostic writes its repair records here.
+# They are per-run artifacts and are recreated by the next diagnosis.
+/.acl-recovery/
