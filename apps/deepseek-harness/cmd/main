@@ -46,6 +46,7 @@ BACKEND_READY=false
 STARTUP_STABILITY_SECONDS=15
 STARTUP_STABILITY_MISSED_LIMIT=5
 DATA_VOLUME_WAIT_SECONDS=30
+AUTH_TOKEN_WAIT_SECONDS=15
 LOG_TARGET=$LOG_FILE
 export PATH="${PNPM_BIN}:${NODE_RUNTIME_BIN}:${PATH:-/usr/bin:/bin}"
 export DSH_FNOS_PLUGIN_POLICY=1
@@ -387,6 +388,41 @@ service_status() {
   return 1
 }
 
+# Wait for the browser authentication token.
+#
+# The backend answers the readiness probe before it has written the token, so
+# the start waits for the token instead of failing right away. The gateway
+# proxy reads the token when it starts and refuses to run without it.
+wait_for_auth_token() {
+  waited=0
+  while [ "$waited" -lt "$AUTH_TOKEN_WAIT_SECONDS" ]; do
+    if [ -f "$AUTH_TOKEN_FILE" ]; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+# Check the token the way the gateway proxy reads it, so a token that the
+# proxy would refuse is reported here instead of as a proxy that never comes
+# up.
+auth_token_is_usable() {
+  [ -f "$AUTH_TOKEN_FILE" ] || return 1
+  [ -L "$AUTH_TOKEN_FILE" ] && return 1
+  permissions=$(stat -c '%A' "$AUTH_TOKEN_FILE" 2>/dev/null || true)
+  # The last six characters are the group and the other permissions, which
+  # the proxy requires to be empty.
+  case "$permissions" in
+    *------) ;;
+    *) return 1 ;;
+  esac
+  owner=$(stat -c '%u' "$AUTH_TOKEN_FILE" 2>/dev/null || true)
+  [ -n "$owner" ] || return 1
+  [ "$owner" = "$(id -u 2>/dev/null || true)" ] || return 1
+}
+
 wait_for_backend_stability() {
   stable_for=0
   consecutive_misses=0
@@ -577,8 +613,12 @@ start_service() {
       return 1
     fi
   fi
-  if [ ! -f "$AUTH_TOKEN_FILE" ]; then
+  if ! wait_for_auth_token; then
     report_error "DeepSeek Harness 未生成统一网关所需的浏览器认证令牌。"
+    return 1
+  fi
+  if ! auth_token_is_usable; then
+    report_error "统一网关代理无法使用浏览器认证令牌：${AUTH_TOKEN_FILE}"
     return 1
   fi
 

@@ -280,7 +280,10 @@ such a backend is kept, the next start reuses it and repairs only the gateway
 proxy, and an interruption after the backend became ready completes the
 remaining startup steps instead of aborting. The gateway proxy starts as soon
 as the backend answers, so it comes up while the stability window runs
-instead of after it.
+instead of after it. The backend answers the readiness probe before it has
+written the browser authentication token, so the start waits for the token
+and checks it the way the gateway proxy reads it, a regular file with no
+group or other permission that the service account owns.
 
 The backend and the gateway proxy each run in their own process group, and
 the stop path signals the whole group instead of a single PID. A child that
