@@ -289,6 +289,13 @@ signalled when the process leads it, so a signal can never reach the platform
 or the lifecycle script, and an installation that was started before the
 process group was introduced keeps the single process behaviour.
 
+The package install can hold the data volume read only for a short while. The
+runtime state lives in that volume, so the start waits for it to become
+writable instead of failing, and a log that cannot be written falls back to
+the standard error that the platform captures. A write that cannot happen
+never takes the service down, because the shell treats a failed redirection as
+a fatal error.
+
 Before DSH starts, the lifecycle wrapper exports a controlled terminal shell:
 executable `/bin/bash` is preferred and `/bin/sh` is the fallback. This keeps
 plugins that honor `$SHELL` from selecting the fnOS package account's non-login

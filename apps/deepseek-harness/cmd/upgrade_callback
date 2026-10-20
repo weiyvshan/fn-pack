@@ -10,50 +10,50 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "${SCRIPT_DIR}/config-common"
 if ! "${SCRIPT_DIR}/main" stop; then
   message="升级时无法安全停止旧版 DeepSeek Harness 进程。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 if ! cleanup_verified_legacy_processes "$TRIM_APPDEST" "$TRIM_UID"; then
   message="升级后无法安全清理遗留的 DeepSeek Harness 进程。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 
 DSH_ENTRY="${TRIM_APPDEST}/server/node_modules/@deepseek-ai/dsh/lib/bin.js"
 if [ ! -f "$DSH_ENTRY" ]; then
   message="升级后的 DeepSeek Harness 运行时缺失：${DSH_ENTRY}"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 
 if ! install_pnpm_launcher "$TRIM_APPDEST" "$TRIM_PKGVAR"; then
   message="升级后的应用私有 pnpm 启动器安装失败；请重新安装完整 FPK。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 if ! install_dsh_launcher "$TRIM_APPDEST" "$TRIM_PKGVAR"; then
   message="升级后的 DeepSeek Harness 命令入口安装失败；请重新安装完整 FPK。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 if ! prepare_landlock_launcher "$TRIM_APPDEST"; then
   message="升级后的 Landlock 沙箱启动器缺失或无法恢复执行权限；请重新安装完整 FPK。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 if ! ensure_dsh_home "$TRIM_PKGHOME" "${TRIM_APPDEST}/server"; then
   message="升级后无法初始化 DeepSeek Harness 数据目录。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 if ! ensure_shell_state "$TRIM_PKGVAR"; then
   message="升级后无法初始化模型 shell 持久化目录。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 if ! mark_wizard_config_initialized "$(package_dsh_home "$TRIM_PKGHOME")"; then
   message="升级后无法记录配置初始化状态。"
-  printf '%s\n' "$message" >"${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" 2>/dev/null || true
+  write_line_to_file "${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}" "$message" || true
   exit 1
 fi
 printf '%s\n' "DeepSeek Harness 文件升级完成；升级钩子不迁移或回滚用户数据。"

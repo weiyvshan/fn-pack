@@ -89,11 +89,15 @@ if [ "$marker_status" -eq 1 ] && ! mark_wizard_config_initialized "$DSH_HOME"; t
 fi
 
 if [ ! -f "${WORKSPACE}/README.md" ]; then
-  cat >"${WORKSPACE}/README.md" <<'EOF'
+  # The write runs in a sub shell so that a read only workspace cannot take
+  # the installation down with a fatal redirection error.
+  (
+    cat >"${WORKSPACE}/README.md" <<'EOF'
 # DeepSeek Harness 工作区
 
 此目录是 DeepSeek Harness 的默认工作区。应用仅向 fnOS 管理员开放；如需访问其他 NAS 目录，请先在应用设置中授予目录权限。
 EOF
+  ) 2>/dev/null || true
 fi
 
 printf '%s\n' "DeepSeek Harness data directories initialized."

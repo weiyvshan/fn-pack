@@ -45,6 +45,8 @@ STARTUP_CLEANUP=false
 BACKEND_READY=false
 STARTUP_STABILITY_SECONDS=15
 STARTUP_STABILITY_MISSED_LIMIT=5
+DATA_VOLUME_WAIT_SECONDS=30
+LOG_TARGET=$LOG_FILE
 export PATH="${PNPM_BIN}:${NODE_RUNTIME_BIN}:${PATH:-/usr/bin:/bin}"
 export DSH_FNOS_PLUGIN_POLICY=1
 export DSH_BUNDLED_SKILL_DIR="$BUNDLED_SKILL_DIR"
@@ -54,16 +56,38 @@ DATA_SHARE_PATHS=${TRIM_DATA_SHARE_PATHS:-}
 WORKSPACE=${DATA_SHARE_PATHS%%:*}
 [ -n "$WORKSPACE" ] || WORKSPACE="${TRIM_PKGVAR}/workspace"
 
-log_message() {
-  mkdir -p "$TRIM_PKGVAR"
-  printf '[%s] %s\n' "$(date '+%F %T')" "$*" >>"$LOG_FILE"
+# Wait for the data volume to become writable.
+#
+# The runtime state lives in that volume, so the service cannot run before it
+# is writable. The package install can hold the volume read only for a short
+# while, so the start waits for it instead of failing right away.
+wait_for_writable_data_volume() {
+  waited=0
+  while [ "$waited" -lt "$DATA_VOLUME_WAIT_SECONDS" ]; do
+    if mkdir -p "$TRIM_PKGVAR" 2>/dev/null && ( : >>"$LOG_FILE" ) 2>/dev/null; then
+      return 0
+    fi
+    if [ "$waited" -eq 0 ]; then
+      printf '%s\n' "数据卷 ${TRIM_PKGVAR} 当前不可写；正在等待其恢复可写。" >&2
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  report_error "数据卷 ${TRIM_PKGVAR} 在 ${DATA_VOLUME_WAIT_SECONDS} 秒内未恢复可写。"
+  return 1
 }
 
-report_error() {
-  message=$1
-  printf '%s\n' "$message" >"$ERROR_LOG" 2>/dev/null || true
-  log_message "ERROR: $message"
-  printf '%s\n' "$message" >&2
+# Choose where the service output goes.
+#
+# The log file is the normal target. When it cannot be written the output
+# goes to the standard error that the platform captures, so a failing log
+# never keeps the service from starting.
+resolve_log_target() {
+  if mkdir -p "$TRIM_PKGVAR" 2>/dev/null && ( : >>"$LOG_FILE" ) 2>/dev/null; then
+    LOG_TARGET=$LOG_FILE
+  else
+    LOG_TARGET=/dev/stderr
+  fi
 }
 
 require_package_start_identity() {
@@ -267,11 +291,13 @@ start_owned_group() {
   shift
   rm -f -- "$pid_file"
   # The process reports its own PID because setsid forks when the caller
-  # already leads a process group, so $! would name the wrong process.
+  # already leads a process group, so $! would name the wrong process. The
+  # output redirection happens inside the started shell, so a log that
+  # cannot be written cannot take the lifecycle script down with it.
   if command -v setsid >/dev/null 2>&1; then
-    setsid sh -c 'printf "%s\n" "$$" >"$1.tmp" && mv -f "$1.tmp" "$1"; shift; exec nohup "$@"' sh "$pid_file" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
+    setsid sh -c 'printf "%s\n" "$$" >"$1.tmp" && mv -f "$1.tmp" "$1"; shift; log="$1"; shift; exec nohup "$@" >>"$log" 2>&1' sh "$pid_file" "$LOG_TARGET" "$@" >/dev/null 2>&1 </dev/null &
   else
-    nohup sh -c 'printf "%s\n" "$$" >"$1.tmp" && mv -f "$1.tmp" "$1"; shift; exec "$@"' sh "$pid_file" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
+    nohup sh -c 'printf "%s\n" "$$" >"$1.tmp" && mv -f "$1.tmp" "$1"; shift; log="$1"; shift; exec "$@" >>"$log" 2>&1' sh "$pid_file" "$LOG_TARGET" "$@" >/dev/null 2>&1 </dev/null &
   fi
   waited=0
   while [ "$waited" -lt 10 ]; do
@@ -323,7 +349,10 @@ select_loopback_port() {
   fi
   PORT=$selected_port
   umask 077
-  printf '%s\n' "$PORT" >"$PORT_FILE"
+  if ! write_line_to_file "$PORT_FILE" "$PORT"; then
+    report_error "无法写入回环端口文件：${PORT_FILE}"
+    return 1
+  fi
 }
 
 service_status() {
@@ -401,6 +430,11 @@ wait_for_backend_stability() {
 
 start_service() {
   require_package_start_identity || return 1
+  # The data volume carries the runtime state. A package install can hold it
+  # read only for a short while, so the start waits for it rather than
+  # failing, and the log falls back to the platform error output.
+  wait_for_writable_data_volume || return 1
+  resolve_log_target
   current=0
   service_status || current=$?
   if [ "$current" -eq 0 ]; then

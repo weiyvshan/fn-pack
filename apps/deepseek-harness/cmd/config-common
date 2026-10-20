@@ -1,9 +1,49 @@
 #!/bin/sh
 
+# The service log and the error report. The lifecycle script sets them, the
+# defaults keep the helpers usable when the library is sourced on its own.
+LOG_FILE=${LOG_FILE:-${TRIM_PKGVAR:-}/dsh.log}
+ERROR_LOG=${ERROR_LOG:-${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR:-}/last-error.log}}
+LOG_TARGET=${LOG_TARGET:-$LOG_FILE}
+
+# Write a line to a file without letting a failing redirection stop the
+# script.
+#
+# The shell treats a failed redirection as a fatal error that no "|| true" can
+# catch, so the write runs in a sub shell where the failure is only a non zero
+# status. The data volume can be read only for a short while after the
+# package is installed, and a write that cannot happen must never take the
+# service down with it.
+write_line_to_file() {
+  write_path=$1
+  write_value=$2
+  ( printf '%s\n' "$write_value" >"$write_path" ) 2>/dev/null
+}
+
+# Append a message to the service log.
+#
+# The log file is the normal target. When it cannot be written the message
+# goes to the standard error that the platform captures, so an unwritable log
+# never stops the service.
+log_message() {
+  if ! ( printf '[%s] %s\n' "$(date '+%F %T')" "$*" >>"$LOG_TARGET" ) 2>/dev/null; then
+    LOG_TARGET=/dev/stderr
+    printf '[%s] %s\n' "$(date '+%F %T')" "$*" >&2 || true
+  fi
+}
+
+# Report a failure to the platform and to the service log.
+report_error() {
+  report_message=$1
+  write_line_to_file "$ERROR_LOG" "$report_message" || true
+  log_message "ERROR: $report_message"
+  printf '%s\n' "$report_message" >&2
+}
+
 config_error() {
   message=$1
   error_log=${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR:?TRIM_PKGVAR is required}/last-error.log}
-  printf '%s\n' "$message" >"$error_log" 2>/dev/null || true
+  write_line_to_file "$error_log" "$message" || true
   printf '%s\n' "$message" >&2
 }
 
@@ -294,7 +334,7 @@ atomic_write_line() {
   mkdir -p "$directory"
   temporary="${path}.tmp.$$"
   umask 077
-  if ! printf '%s\n' "$value" >"$temporary"; then
+  if ! write_line_to_file "$temporary" "$value"; then
     rm -f -- "$temporary"
     return 1
   fi

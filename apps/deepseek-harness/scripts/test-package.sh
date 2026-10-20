@@ -255,6 +255,7 @@ list_shell_files() {
         "$PROJECT/tests/dsh-launcher.test.sh" \
         "$PROJECT/tests/main-lifecycle.test.sh" \
         "$PROJECT/tests/process-group.test.sh" \
+        "$PROJECT/tests/log-resilience.test.sh" \
         "$PROJECT/tests/skill-creator.test.sh" \
         "$BUNDLED_SKILL_CREATOR_ROOT/scripts/generate_openai_yaml.sh" \
         "$BUNDLED_SKILL_CREATOR_ROOT/scripts/init_skill.sh" \
@@ -395,6 +396,7 @@ fi
 "$BASH_BIN" "$PROJECT/tests/dsh-launcher.test.sh" || fail 'dsh launcher tests failed.'
 "$BASH_BIN" "$PROJECT/tests/main-lifecycle.test.sh" || fail 'main lifecycle tests failed.'
 "$BASH_BIN" "$PROJECT/tests/process-group.test.sh" || fail 'process group tests failed.'
+"$BASH_BIN" "$PROJECT/tests/log-resilience.test.sh" || fail 'log resilience tests failed.'
 "$BASH_BIN" "$PROJECT/tests/skill-creator.test.sh" || fail 'skill-creator tests failed.'
 "$NODE_BIN" "$PROJECT/tests/generate-source-runtime.test.mjs" || fail 'generate-source-runtime tests failed.'
 "$NODE_BIN" "$PROJECT/tests/prune-source-runtime.test.mjs" || fail 'prune-source-runtime tests failed.'

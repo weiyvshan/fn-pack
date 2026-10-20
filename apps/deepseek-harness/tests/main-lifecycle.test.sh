@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MAIN_SCRIPT="${SCRIPT_DIR}/../cmd/main"
+CONFIG_COMMON="${SCRIPT_DIR}/../cmd/config-common"
 INSTALL_CALLBACK="${SCRIPT_DIR}/../cmd/install_callback"
 CONFIG_CALLBACK="${SCRIPT_DIR}/../cmd/config_callback"
 FIXTURE=$(mktemp -d "${TMPDIR:-/tmp}/deepseek-harness-main-test.XXXXXX")
@@ -112,6 +113,21 @@ grep -Fq 'signal_owned_group "$pid" "$pgid" KILL' "$MAIN_SCRIPT" ||
 if grep -Eq '^\s*(nohup|env).*DSH_ENTRY.*&$' "$MAIN_SCRIPT"; then
   fail 'App Center startup still starts the backend outside a process group'
 fi
+
+# The data volume can be read only for a short while after the package is
+# installed. The start must wait for it, and a log that cannot be written must
+# never take the service down.
+grep -Fq 'wait_for_writable_data_volume' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not wait for the data volume to become writable'
+grep -Fq 'resolve_log_target' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not choose a log target that can be written'
+if grep -Fq '>>"$LOG_FILE"' "$MAIN_SCRIPT" | grep -qv '2>>"$LOG_FILE"'; then
+  fail 'App Center startup still writes the log with an unprotected redirection'
+fi
+grep -Fq '>>"$LOG_TARGET" ) 2>/dev/null' "$CONFIG_COMMON" ||
+  fail 'The service log write is not protected against a failing redirection'
+grep -Fq 'write_line_to_file' "$CONFIG_COMMON" ||
+  fail 'The shared helpers do not provide a protected file write'
 
 set +e
 output=$(
