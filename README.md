@@ -13,6 +13,7 @@
 | [DeepSeek Harness](apps/deepseek-harness/README.md) | 原生应用，从锁定源码构建 CLI 和 Web | [CHANGELOG](apps/deepseek-harness/CHANGELOG.md) |
 | [CPA Manager Plus](apps/cpa-manager-plus/README.md) | 原生双服务，采用上游发布的二进制 | [CHANGELOG](apps/cpa-manager-plus/CHANGELOG.md) |
 | [Sub2API](apps/sub2api/README.md) | Docker 应用，使用锁定的镜像 | [CHANGELOG](apps/sub2api/CHANGELOG.md) |
+| [Magpie](apps/magpie/README.md) | 原生应用，采用官方静态 CLI | [CHANGELOG](apps/magpie/CHANGELOG.md) |
 
 ## 安装
 
@@ -33,8 +34,9 @@ sha256sum --check SHA256SUMS
 - DeepSeek Harness：[bootstrap.sh](bootstrap.sh)。按锁定的上游提交准备源码，再构建运行时和 FPK。
 - CPA Manager Plus：[build-fpk.sh](apps/cpa-manager-plus/scripts/build-fpk.sh)。下载并校验官方二进制，再装配安装脚本和配置。
 - Sub2API：[build-fpk.sh](apps/sub2api/scripts/build-fpk.sh)。装配 Compose、镜像引用和安装脚本；打包时不启动 Docker，也不下载镜像。
+- Magpie：[build-fpk.sh](apps/magpie/scripts/build-fpk.sh)。校验官方静态 CLI，运行隔离回归后装配 FPK，无需编译上游程序。
 
-DSH 需要 Node.js 和 C/C++ 工具链，还会运行真实的 Landlock 内核测试。它比另外两个工程更吃内存，本地构建建议预留至少 16 GB。
+DSH 需要 Node.js 和 C/C++ 工具链，还会运行真实的 Landlock 内核测试。构建对内存要求较高，本地建议预留至少 16 GB。
 
 如果在 fnOS 应用自带的终端中构建，先清除继承的 `TRIM_*` 环境变量，避免测试误用宿主应用的目录。具体操作见工程文档，不要在已安装应用的目录里构建或修改文件。
 
@@ -50,4 +52,4 @@ DSH 需要 Node.js 和 C/C++ 工具链，还会运行真实的 Landlock 内核�
 
 已发布的 tag 保持不动，工作流也不会覆盖已有 Release。需要调整包内容时，递增飞牛包版本后再发布。
 
-使用和构建说明放在各工程的 README，打包变化记在 CHANGELOG，安装清单只保留本版摘要。更新上游依赖时，一起核对锁文件、测试和更新记录，避免多处版本信息各写各的。
+使用和构建说明放在各工程的 README，打包变化记在 CHANGELOG；更新包版本时，安装清单只保留本版摘要。更新上游依赖时，一起核对锁文件、测试和更新记录，避免多处版本信息各写各的。

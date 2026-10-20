@@ -1,0 +1,678 @@
+#!/bin/bash
+# Magpie fnOS lifecycle controller.
+#
+# Phases arrive as $1 from the thin wrappers in this directory. Only the
+# whitelisted phase names below are accepted; anything else exits non-zero so a
+# mis-invocation can never fall through into a destructive branch.
+set -u
+
+PHASE="${1:-}"
+
+APP_NAME=magpie
+DAEMON_NAME=magpie
+WEB_PORT=3430
+DEFAULT_GATEWAY_PORT=3425
+GATEWAY_PORT="$DEFAULT_GATEWAY_PORT"
+JQ=/usr/bin/jq
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+SS=/usr/bin/ss
+CURL=/usr/bin/curl
+SETPRIV=/usr/bin/setpriv
+PGREP=/usr/bin/pgrep
+READLINK=/usr/bin/readlink
+ENV=/usr/bin/env
+CHOWN=/usr/bin/chown
+STAT=/usr/bin/stat
+MV=/usr/bin/mv
+RM=/usr/bin/rm
+CAT=/usr/bin/cat
+CHMOD=/usr/bin/chmod
+MKDIR=/usr/bin/mkdir
+KILL=/usr/bin/kill
+FLOCK=/usr/bin/flock
+HEAD=/usr/bin/head
+TR=/usr/bin/tr
+OD=/usr/bin/od
+CUT=/usr/bin/cut
+PRINTF=/usr/bin/printf
+SLEEP=/usr/bin/sleep
+ID=/usr/bin/id
+GREP=/usr/bin/grep
+TAIL=/usr/bin/tail
+DATE=/usr/bin/date
+
+# ---------------------------------------------------------------------------
+# Diagnostics
+# ---------------------------------------------------------------------------
+
+# Best-effort, key-free failure reporting. Values written here must never
+# include the management key or any provider credential.
+fail() {
+    printf '%s\n' "$*" >&2
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+        printf '%s\n' "$*" >>"$TRIM_TEMP_LOGFILE" 2>/dev/null || true
+    fi
+    exit 1
+}
+
+note() {
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+        printf '%s\n' "$*" >>"$TRIM_TEMP_LOGFILE" 2>/dev/null || true
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Phase gate
+# ---------------------------------------------------------------------------
+
+case "$PHASE" in
+    start|stop|status) ;;
+    install_init|install_callback) ;;
+    upgrade_init|upgrade_callback) ;;
+    uninstall_init|uninstall_callback) ;;
+    *) fail "unsupported action: ${PHASE:-empty}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+require_env() {
+    name="$1"
+    value="${!name:-}"
+    [ -n "$value" ] || fail "missing required environment variable: ${name}"
+    printf '%s' "$value"
+}
+
+TRIM_APPDEST="$(require_env TRIM_APPDEST)"
+TRIM_PKGVAR="$(require_env TRIM_PKGVAR)"
+TRIM_PKGETC="$(require_env TRIM_PKGETC)"
+TRIM_PKGTMP="$(require_env TRIM_PKGTMP)"
+TRIM_PKGHOME="$(require_env TRIM_PKGHOME)"
+TRIM_UID="$(require_env TRIM_UID)"
+TRIM_GID="$(require_env TRIM_GID)"
+
+BIN="${TRIM_APPDEST}/bin/${DAEMON_NAME}"
+
+# Runtime state lives in the persistent package var directory so upgrades keep
+# keys, providers, usage and route configuration.
+STATE_ROOT="${TRIM_PKGVAR}"
+XDG_CONFIG="${STATE_ROOT}/xdg/config"
+XDG_CACHE="${STATE_ROOT}/xdg/cache"
+XDG_DATA="${STATE_ROOT}/xdg/data"
+XDG_STATE="${STATE_ROOT}/xdg/state"
+LOG_DIR="${STATE_ROOT}/logs"
+RUN_DIR="${STATE_ROOT}/run"
+TMP_DIR="${TRIM_PKGTMP}"
+HOME_DIR="${TRIM_PKGHOME}"
+
+LOG_FILE="${LOG_DIR}/web.log"
+PID_FILE="${RUN_DIR}/web.pid"
+KEY_FILE="${STATE_ROOT}/web.key"
+URL_FILE="${STATE_ROOT}/web-url.txt"
+
+MAGPIE_SETTINGS="${XDG_CONFIG}/magpie/settings.json"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+is_positive_int() {
+    case "${1:-}" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -gt 0 ] 2>/dev/null
+}
+
+# Guard for the only destructive operation in this controller. The target must
+# be the package's own persistent directory; volume roots, the shared /var/apps
+# tree and any traversal are refused outright.
+assert_removable_state_root() {
+    target="$1"
+    case "$target" in
+        ''|/|.|..) fail "refusing to remove '${target}'" ;;
+        *..*) fail "refusing to remove a path containing '..': ${target}" ;;
+    esac
+    case "$target" in
+        */apps/"${APP_NAME}"/var) ;;
+        *) fail "refusing to remove unexpected path: ${target}" ;;
+    esac
+}
+
+expected_uid() {
+    printf '%s' "${TRIM_UID:-}"
+}
+
+# A PID is ours only when the live process still resolves to our binary and is
+# owned by the package identity.
+pid_owned() {
+    pid="${1:-}"
+    is_positive_int "$pid" || return 1
+    [ -d "/proc/${pid}" ] || return 1
+
+    owner="$( ${STAT} -c '%u' "/proc/${pid}" 2>/dev/null )" || return 1
+    [ "$owner" = "$(expected_uid)" ] || return 1
+
+    exe="$( ${READLINK} "/proc/${pid}/exe" 2>/dev/null )" || return 1
+    exe="${exe% (deleted)}"
+    [ "$exe" = "$BIN" ] || return 1
+
+    cmdline="$( ${TR} '\0' '\n' <"/proc/${pid}/cmdline" 2>/dev/null )" || return 1
+    printf '%s\n' "$cmdline" | ${GREP} -qx -- 'web' || return 1
+
+    return 0
+}
+
+read_pid_file() {
+    [ -f "$PID_FILE" ] || return 1
+    pid="$( ${HEAD} -n1 "$PID_FILE" 2>/dev/null | ${TR} -d ' \t\r\n' )"
+    is_positive_int "$pid" || return 1
+    printf '%s' "$pid"
+}
+
+port_listening() {
+    port="$1"
+    ${SS} -H -ltn "sport = :${port}" 2>/dev/null | ${GREP} -q .
+}
+
+listener_pids() {
+    port="$1"
+    ${SS} -H -ltnp "sport = :${port}" 2>/dev/null \
+        | ${GREP} -o 'pid=[0-9]\+' | ${CUT} -d= -f2 | sort -u
+}
+
+# Every listener on the port must belong to this package.
+listener_owned_by_us() {
+    port="$1"
+    pids="$(listener_pids "$port")"
+    [ -n "$pids" ] || return 1
+    for p in $pids; do
+        pid_owned "$p" || return 1
+    done
+    return 0
+}
+
+collect_owned_pids() {
+    { read_pid_file 2>/dev/null || true; printf '\n'; ${PGREP} -x "$DAEMON_NAME" 2>/dev/null || true; } \
+        | ${TR} -s '\n' '\n' | while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            if pid_owned "$p"; then printf '%s\n' "$p"; fi
+        done
+}
+
+wait_for_exit() {
+    pid="$1"
+    limit="$2"
+    i=0
+    while [ "$i" -lt "$limit" ]; do
+        [ -d "/proc/${pid}" ] || return 0
+        ${SLEEP} 1
+        i=$((i + 1))
+    done
+    [ -d "/proc/${pid}" ] && return 1
+    return 0
+}
+
+http_code() {
+    url="$1"
+    ${CURL} -s -o /dev/null -m 3 -w '%{http_code}' "$url" 2>/dev/null || printf '000'
+}
+
+# Settings owns the gateway port. An absent or zero port uses Magpie's
+# built-in default; reject malformed values instead of probing another service.
+load_gateway_port() {
+    local configured
+    GATEWAY_PORT="$DEFAULT_GATEWAY_PORT"
+    [ -e "$MAGPIE_SETTINGS" ] || return 0
+    [ -r "$MAGPIE_SETTINGS" ] && [ -x "$JQ" ] || return 1
+    configured="$( "$JQ" -er --argjson fallback "$DEFAULT_GATEWAY_PORT" '
+        if type != "object" then error("settings must be an object")
+        else .port end
+        | if . == null or . == 0 then $fallback
+          elif type == "number" then
+              if . == floor and . >= 1 and . <= 65535 then .
+              else error("invalid gateway port") end
+          else error("invalid gateway port") end
+    ' "$MAGPIE_SETTINGS" 2>/dev/null )" || return 1
+    is_positive_int "$configured" || return 1
+    GATEWAY_PORT="$configured"
+}
+
+gateway_ready() {
+    [ "$(http_code "http://127.0.0.1:${GATEWAY_PORT}/v1/models")" = "200" ]
+}
+
+web_ready() {
+    # The management UI answers 401 (login) when the key is not supplied.
+    code="$(http_code "http://127.0.0.1:${WEB_PORT}/")"
+    [ "$code" = "401" ] || [ "$code" = "200" ]
+}
+
+stop_owned_processes() {
+    pids="$(collect_owned_pids)"
+    [ -n "$pids" ] || return 0
+
+    for p in $pids; do
+        pid_owned "$p" && ${KILL} -TERM "$p" 2>/dev/null || true
+    done
+
+    i=0
+    while [ "$i" -lt 15 ]; do
+        remaining=""
+        for p in $pids; do
+            [ -d "/proc/${p}" ] && remaining="${remaining} ${p}"
+        done
+        [ -z "$remaining" ] && break
+        ${SLEEP} 1
+        i=$((i + 1))
+    done
+
+    for p in $pids; do
+        if [ -d "/proc/${p}" ] && pid_owned "$p"; then
+            ${KILL} -KILL "$p" 2>/dev/null || true
+        fi
+    done
+
+    i=0
+    while [ "$i" -lt 10 ]; do
+        alive=0
+        for p in $pids; do
+            [ -d "/proc/${p}" ] && alive=1
+        done
+        [ "$alive" = "0" ] && break
+        ${SLEEP} 1
+        i=$((i + 1))
+    done
+
+    ${RM} -f "$PID_FILE" 2>/dev/null || true
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Management key
+# ---------------------------------------------------------------------------
+
+key_shape_ok() {
+    value="${1:-}"
+    case "$value" in
+        *[!A-Za-z0-9._~-]*) return 1 ;;
+    esac
+    n=${#value}
+    [ "$n" -ge 16 ] && [ "$n" -le 128 ]
+}
+
+# The management key survives restarts: prefer the persisted key, then the
+# wizard value from this installation, then a freshly generated one.
+resolve_key() {
+    if [ -f "$KEY_FILE" ]; then
+        persisted="$( ${CAT} "$KEY_FILE" 2>/dev/null | ${HEAD} -n1 | ${TR} -d '\r\n' )"
+        if key_shape_ok "$persisted"; then
+            printf '%s' "$persisted"
+            return 0
+        fi
+    fi
+
+    wizard="${wizard_web_key:-}"
+    if key_shape_ok "$wizard"; then
+        persist_key "$wizard" || fail "unable to persist the management key"
+        printf '%s' "$wizard"
+        return 0
+    fi
+    if [ -n "$wizard" ]; then
+        fail "the supplied management key is invalid: use 16-128 characters from A-Z a-z 0-9 . _ ~ -"
+    fi
+
+    generated="$( ${OD} -An -tx1 -N24 /dev/urandom 2>/dev/null | ${TR} -d ' \n' )"
+    key_shape_ok "$generated" || fail "unable to generate a management key"
+    persist_key "$generated" || fail "unable to persist the management key"
+    printf '%s' "$generated"
+}
+
+persist_key() {
+    value="$1"
+    umask 077
+    ${PRINTF} '%s\n' "$value" >"${KEY_FILE}.tmp" 2>/dev/null || return 1
+    ${CHMOD} 0600 "${KEY_FILE}.tmp" 2>/dev/null || return 1
+    ${MV} -f "${KEY_FILE}.tmp" "$KEY_FILE" 2>/dev/null || return 1
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Directory preparation
+# ---------------------------------------------------------------------------
+
+ensure_dirs() {
+    # Everything created from here on is owner-only. The service prints its
+    # management key inside its own start-up banner, so neither the log file
+    # nor the directory holding it may stay readable by other local accounts.
+    umask 077
+
+    for d in "$XDG_CONFIG" "$XDG_CACHE" "$XDG_DATA" "$XDG_STATE" "$LOG_DIR" "$RUN_DIR" "$TMP_DIR" "$HOME_DIR"; do
+        [ -d "$d" ] || ${MKDIR} -p "$d" 2>/dev/null || fail "unable to create directory: ${d}"
+    done
+    ${CHMOD} 0700 "$XDG_CONFIG" "$XDG_CACHE" "$XDG_DATA" "$XDG_STATE" "$RUN_DIR" "$LOG_DIR" 2>/dev/null || true
+    ${CHMOD} 0755 "$HOME_DIR" 2>/dev/null || true
+
+    # The long-running service runs as the package user.
+    if [ "$( ${ID} -u )" = "0" ]; then
+        ${CHOWN} -R "${TRIM_UID}:${TRIM_GID}" \
+            "$STATE_ROOT" "$TMP_DIR" "$HOME_DIR" 2>/dev/null \
+            || fail "unable to set ownership on the package state directory"
+    fi
+}
+
+# Magpie owns its own settings file; these switches are applied once so the
+# packaged service never self-updates and never reads agent sign-ins.
+initialise_settings() {
+    [ -f "$MAGPIE_SETTINGS" ] && return 0
+
+    # These helpers only need an isolated config directory; they are not
+    # long-running, so a wrapper function is safe here.
+    run_isolated "$BIN" update auto off >/dev/null 2>&1 || true
+    run_isolated "$BIN" accounts discovery off >/dev/null 2>&1 || true
+
+    if [ ! -f "$MAGPIE_SETTINGS" ]; then
+        note "magpie settings file was not created during initialisation"
+    fi
+    return 0
+}
+
+# Run a command as the package user with an isolated environment.
+run_as_package() {
+    ${SETPRIV} --reuid "$TRIM_UID" --regid "$TRIM_GID" --init-groups --reset-env \
+        "$ENV" -u MAGPIE_ADDR \
+        "HOME=${HOME_DIR}" \
+        "XDG_CONFIG_HOME=${XDG_CONFIG}" \
+        "XDG_CACHE_HOME=${XDG_CACHE}" \
+        "XDG_DATA_HOME=${XDG_DATA}" \
+        "XDG_STATE_HOME=${XDG_STATE}" \
+        "TMPDIR=${TMP_DIR}" \
+        PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+        LANG=C.UTF-8 \
+        TZ=Asia/Shanghai \
+        "$@"
+}
+
+# Same isolation for short-lived helpers. This must never be backgrounded: $!
+# would then record the wrapper instead of the daemon process.
+run_isolated() {
+    if [ "$( ${ID} -u )" = "0" ]; then
+        run_as_package "$@"
+        return $?
+    fi
+    "${ENV}" -u MAGPIE_ADDR \
+        "HOME=${HOME_DIR}" \
+        "XDG_CONFIG_HOME=${XDG_CONFIG}" \
+        "XDG_CACHE_HOME=${XDG_CACHE}" \
+        "XDG_DATA_HOME=${XDG_DATA}" \
+        "XDG_STATE_HOME=${XDG_STATE}" \
+        "TMPDIR=${TMP_DIR}" \
+        PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+        LANG=C.UTF-8 \
+        TZ=Asia/Shanghai \
+        "$@"
+}
+
+# ---------------------------------------------------------------------------
+# start / stop / status
+# ---------------------------------------------------------------------------
+
+start() {
+    [ -x "$BIN" ] || fail "the packaged magpie binary is missing or not executable: ${BIN}"
+    [ -x "$JQ" ] || fail "required fnOS JSON reader is missing: ${JQ}"
+
+    ensure_dirs
+    # A log file left over from an earlier run keeps its old mode, so tighten
+    # it before the service appends the banner carrying the management key.
+    # Doing this ahead of the idempotency check means an instance that is
+    # already healthy also gets its log narrowed.
+    : >>"$LOG_FILE" 2>/dev/null || true
+    ${CHMOD} 0600 "$LOG_FILE" 2>/dev/null || true
+    load_gateway_port || fail "unable to read the gateway port from settings.json; expected an integer from 1 to 65535"
+    [ "$GATEWAY_PORT" != "$WEB_PORT" ] || fail "the gateway port conflicts with management UI port ${WEB_PORT}"
+
+    # Idempotent: an already healthy instance of this package is left alone.
+    if pid="$(read_pid_file)"; then
+        if pid_owned "$pid" && web_ready && gateway_ready; then
+            printf '%s\n' "$pid" >"$PID_FILE" 2>/dev/null || true
+            printf 'magpie already running (pid %s)\n' "$pid"
+            return 0
+        fi
+    fi
+
+    # Refuse to fight another process for the management or configured gateway port.
+    if ! pid="$(read_pid_file)"; then pid=""; fi
+    if [ -n "$pid" ] && pid_owned "$pid"; then
+        stop_owned_processes
+    fi
+    for p in "$WEB_PORT" "$GATEWAY_PORT"; do
+        if port_listening "$p" && ! listener_owned_by_us "$p"; then
+            fail "port ${p} is already in use by another process; stop it before starting magpie"
+        fi
+    done
+    stop_owned_processes
+
+    KEY="$(resolve_key)" || fail "unable to determine the management key"
+    initialise_settings
+
+    if [ "$( ${ID} -u )" = "0" ]; then
+        # Start directly so $! is the real daemon PID (never wrap this in a
+        # function or subshell, or $! would record the wrapper instead).
+        ${SETPRIV} --reuid "$TRIM_UID" --regid "$TRIM_GID" --init-groups --reset-env \
+            "$ENV" -u MAGPIE_ADDR \
+            "HOME=${HOME_DIR}" \
+            "XDG_CONFIG_HOME=${XDG_CONFIG}" \
+            "XDG_CACHE_HOME=${XDG_CACHE}" \
+            "XDG_DATA_HOME=${XDG_DATA}" \
+            "XDG_STATE_HOME=${XDG_STATE}" \
+            "TMPDIR=${TMP_DIR}" \
+            PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            LANG=C.UTF-8 \
+            TZ=Asia/Shanghai \
+            MAGPIE_WEB_KEY="$KEY" \
+            MAGPIE_NO_ACCOUNTS=1 \
+            MAGPIE_NO_STATS=1 \
+            DO_NOT_TRACK=1 \
+            "$BIN" web --addr "0.0.0.0:${WEB_PORT}" --no-open \
+            >>"$LOG_FILE" 2>&1 &
+        new_pid=$!
+    else
+        "${ENV}" -u MAGPIE_ADDR \
+            "HOME=${HOME_DIR}" \
+            "XDG_CONFIG_HOME=${XDG_CONFIG}" \
+            "XDG_CACHE_HOME=${XDG_CACHE}" \
+            "XDG_DATA_HOME=${XDG_DATA}" \
+            "XDG_STATE_HOME=${XDG_STATE}" \
+            "TMPDIR=${TMP_DIR}" \
+            PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            LANG=C.UTF-8 \
+            TZ=Asia/Shanghai \
+            MAGPIE_WEB_KEY="$KEY" \
+            MAGPIE_NO_ACCOUNTS=1 \
+            MAGPIE_NO_STATS=1 \
+            DO_NOT_TRACK=1 \
+            "$BIN" web --addr "0.0.0.0:${WEB_PORT}" --no-open \
+            >>"$LOG_FILE" 2>&1 &
+        new_pid=$!
+    fi
+
+    is_positive_int "$new_pid" || fail "failed to spawn the magpie service"
+
+    i=0
+    ready=0
+    while [ "$i" -lt 60 ]; do
+        if [ ! -d "/proc/${new_pid}" ]; then
+            ${TAIL} -n 5 "$LOG_FILE" >&2 2>/dev/null || true
+            ${RM} -f "$PID_FILE" 2>/dev/null || true
+            fail "the magpie service exited during startup"
+        fi
+        if web_ready && gateway_ready; then
+            ready=1
+            break
+        fi
+        ${SLEEP} 1
+        i=$((i + 1))
+    done
+
+    if [ "$ready" != "1" ]; then
+        ${TAIL} -n 5 "$LOG_FILE" >&2 2>/dev/null || true
+        stop_owned_processes
+        fail "the magpie service did not become ready within 60 seconds"
+    fi
+
+    umask 077
+    ${PRINTF} '%s\n' "$new_pid" >"$PID_FILE" 2>/dev/null || fail "unable to write the PID file"
+    ${CHMOD} 0600 "$PID_FILE" 2>/dev/null || true
+    if [ "$( ${ID} -u )" = "0" ]; then
+        ${CHOWN} "${TRIM_UID}:${TRIM_GID}" "$PID_FILE" 2>/dev/null || true
+    fi
+
+    # Record the management link so an operator can recover it locally without
+    # reading the log; the file stays inside the private state directory.
+    ${PRINTF} 'http://127.0.0.1:%s/?k=%s\n' "$WEB_PORT" "$KEY" >"${URL_FILE}.tmp" 2>/dev/null || true
+    ${CHMOD} 0600 "${URL_FILE}.tmp" 2>/dev/null || true
+    ${MV} -f "${URL_FILE}.tmp" "$URL_FILE" 2>/dev/null || true
+    if [ "$( ${ID} -u )" = "0" ]; then
+        ${CHOWN} "${TRIM_UID}:${TRIM_GID}" "$URL_FILE" 2>/dev/null || true
+    fi
+
+    printf 'magpie started (pid %s), management UI on port %s, gateway on port %s\n' \
+        "$new_pid" "$WEB_PORT" "$GATEWAY_PORT"
+    return 0
+}
+
+stop() {
+    if ! load_gateway_port; then
+        GATEWAY_PORT=""
+        note "gateway settings are unreadable; stopping verified package processes without a gateway port check"
+    fi
+    stop_owned_processes
+
+    for p in "$WEB_PORT" "$GATEWAY_PORT"; do
+        [ -n "$p" ] || continue
+        i=0
+        while port_listening "$p" && [ "$i" -lt 10 ]; do
+            ${SLEEP} 1
+            i=$((i + 1))
+        done
+    done
+
+    printf 'magpie stopped\n'
+    return 0
+}
+
+status() {
+    load_gateway_port || fail "unable to read the gateway port from settings.json; expected an integer from 1 to 65535"
+    if pid="$(read_pid_file)"; then
+        if pid_owned "$pid"; then
+            if web_ready && gateway_ready; then
+                printf 'magpie running (pid %s), management UI on port %s, gateway on port %s\n' \
+                    "$pid" "$WEB_PORT" "$GATEWAY_PORT"
+                return 0
+            fi
+            printf 'magpie process %s is alive but its services are not answering\n' "$pid" >&2
+            return 1
+        fi
+    fi
+
+    for p in "$WEB_PORT" "$GATEWAY_PORT"; do
+        if port_listening "$p"; then
+            if listener_owned_by_us "$p"; then
+                # A package-owned listener without a valid PID file: adopt it.
+                adopter="$(listener_pids "$p" | ${HEAD} -n1)"
+                if is_positive_int "$adopter"; then
+                    umask 077
+                    ${PRINTF} '%s\n' "$adopter" >"$PID_FILE" 2>/dev/null || true
+                    if web_ready && gateway_ready; then
+                        printf 'magpie running (pid %s)\n' "$adopter"
+                        return 0
+                    fi
+                fi
+            fi
+            printf 'port %s is in use by a process that is not this package\n' "$p" >&2
+            return 1
+        fi
+    done
+
+    printf 'magpie is not running\n'
+    return 3
+}
+
+# ---------------------------------------------------------------------------
+# Phase dispatch
+# ---------------------------------------------------------------------------
+
+case "$PHASE" in
+    start)
+        start
+        exit $?
+        ;;
+    stop)
+        stop
+        exit $?
+        ;;
+    status)
+        status
+        exit $?
+        ;;
+    install_init)
+        # Runs before package files are extracted: nothing may be touched yet.
+        exit 0
+        ;;
+    install_callback)
+        # Persist the wizard-supplied key before the first start.
+        if [ -n "${wizard_web_key:-}" ]; then
+            if key_shape_ok "$wizard_web_key"; then
+                ${MKDIR} -p "$STATE_ROOT" 2>/dev/null || fail "unable to create the package state directory"
+                persist_key "$wizard_web_key" || fail "unable to persist the management key"
+                ${CHMOD} 0700 "$STATE_ROOT" 2>/dev/null || true
+                if [ "$( ${ID} -u )" = "0" ]; then
+                    ${CHOWN} -R "${TRIM_UID}:${TRIM_GID}" "$STATE_ROOT" 2>/dev/null || true
+                fi
+            else
+                fail "the supplied management key is invalid: use 16-128 characters from A-Z a-z 0-9 . _ ~ -"
+            fi
+        fi
+        note "magpie install_callback completed"
+        exit 0
+        ;;
+    upgrade_init)
+        # Fixed ports are shared with the old version: stop it before the
+        # package tree is replaced.
+        stop
+        exit 0
+        ;;
+    upgrade_callback)
+        # Defence in depth: the incoming scripts may run against a live old
+        # process. Stop any remainder, then start the new build.
+        stop
+        start
+        exit 0
+        ;;
+    uninstall_init)
+        stop
+        exit 0
+        ;;
+    uninstall_callback)
+        # Package files are already gone; only clean durable state, and only
+        # when the user explicitly asked for data removal.
+        case "${delete_data:-false}" in
+            true|TRUE|1|yes|on)
+                if [ -n "${STATE_ROOT}" ] && [ -d "$STATE_ROOT" ]; then
+                    assert_removable_state_root "$STATE_ROOT"
+                    ${RM} -rf -- "$STATE_ROOT" 2>/dev/null || true
+                    note "magpie uninstall removed application data"
+                fi
+                ;;
+            *)
+                note "magpie uninstall kept application data"
+                ;;
+        esac
+        exit 0
+        ;;
+esac
+
+exit 1

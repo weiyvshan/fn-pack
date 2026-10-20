@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "appname": "magpie",
+  "package_version": "0.1.1275-2",
+  "source_fpk": {
+    "name": "magpie_0.1.1275-2_x86.fpk",
+    "sha256": "aff246701281914071a9270bbb15574b56e541a7ab12a44bf8e88af9f3e2abe4",
+    "member": "cmd/main"
+  },
+  "fixture": {
+    "file": "previous-main.sh",
+    "sha256": "e428630cc2fa912ecbcb836d6f2d4699dd985c39b146df35e44113632e31e067"
+  },
+  "note": "The controller was extracted verbatim from the named FPK. The original package remains in the development workspace under archive/magpie/0.1.1275-2/. This fixture is controller source, not a reconstructed FPK."
+}

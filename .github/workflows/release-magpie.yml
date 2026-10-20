@@ -1,0 +1,21 @@
+name: Build and release Magpie
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['magpie-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-magpie-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-app.yml
+    with:
+      app: magpie

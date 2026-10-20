@@ -36,7 +36,7 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, re
           app = os.environ['APP']
-          if app not in ('cpa-manager-plus', 'sub2api'):
+          if app not in ('cpa-manager-plus', 'sub2api', 'magpie'):
               raise SystemExit('Unsupported application')
           project = pathlib.Path('apps') / app
           fields = {}
@@ -45,7 +45,7 @@ jobs:
                   key, value = line.split('=', 1)
                   fields[key.strip()] = value.strip()
           version, platform = fields['version'], fields['platform']
-          if fields['appname'] != app or not re.fullmatch(r'[0-9]+(?:\.[0-9]+)+', version):
+          if fields['appname'] != app or not re.fullmatch(r'[0-9]+(?:\.[0-9]+)+(?:-[0-9]+)?', version):
               raise SystemExit('Invalid package identity or version')
           if platform not in ('x86', 'all'):
               raise SystemExit('Unsupported package platform')
@@ -73,6 +73,12 @@ jobs:
         with:
           path: .tmp/cpa-manager-plus-binaries
           key: cpamp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/cpa-manager-plus/binary.lock.json') }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: inputs.app == 'magpie'
+        with:
+          path: .tmp/magpie-binaries
+          key: magpie-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/magpie/binary.lock.json') }}
 
       - name: Test, audit and build FPK
         run: |
@@ -127,6 +133,8 @@ jobs:
           path: |
             .tmp/build.log
             .tmp/audit.json
+            .tmp/magpie-stage-audit.json
+            .tmp/magpie-verification.json
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14

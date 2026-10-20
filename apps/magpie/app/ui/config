@@ -1,0 +1,16 @@
+{
+  ".url": {
+    "magpie.main": {
+      "title": "Magpie",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "3430",
+      "url": "/",
+      "allUsers": false,
+      "control": {
+        "accessPerm": "readonly"
+      }
+    }
+  }
+}

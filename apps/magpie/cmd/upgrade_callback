@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$(/usr/bin/dirname "$0")/main" upgrade_callback

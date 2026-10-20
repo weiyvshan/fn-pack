@@ -1,0 +1,23 @@
+[
+  {
+    "stepTitle": "卸载 Magpie",
+    "items": [
+      {
+        "type": "radio",
+        "field": "delete_data",
+        "label": "是否删除应用数据？",
+        "initValue": "false",
+        "options": [
+          {
+            "label": "保留配置、管理密钥、供应商与用量数据",
+            "value": "false"
+          },
+          {
+            "label": "删除全部应用数据（不可恢复）",
+            "value": "true"
+          }
+        ]
+      }
+    ]
+  }
+]

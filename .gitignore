@@ -4,6 +4,7 @@
 /vendor/
 /evidence/
 **/.tmp/
+/apps/magpie/app/bin/
 
 # Keep only the empty credential directory placeholder in source control.
 /apps/sub2api/app/docker/runtime-secrets/*
