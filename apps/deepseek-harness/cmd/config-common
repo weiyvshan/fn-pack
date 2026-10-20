@@ -375,6 +375,49 @@ is_generated_loopback_profile() {
   validate_proxy_port "$port"
 }
 
+# Classify the backend state observed during the startup stability window.
+#
+# The readiness probe answers within a short timeout, so a backend that is
+# still busy finishing its startup work can miss it without being dead. Only
+# a missing process means the backend exited, and a backend that keeps
+# missing the probe is slow rather than gone.
+#
+# Prints one of: ready, slow, exited, unresponsive
+backend_stability_state() {
+  process_alive=$1
+  probe_answered=$2
+  consecutive_misses=$3
+  miss_limit=$4
+
+  if [ "$process_alive" != yes ]; then
+    printf '%s\n' 'exited'
+    return 0
+  fi
+  if [ "$probe_answered" = yes ]; then
+    printf '%s\n' 'ready'
+    return 0
+  fi
+  if [ "$miss_limit" -gt 0 ] && [ "$consecutive_misses" -ge "$miss_limit" ]; then
+    printf '%s\n' 'unresponsive'
+    return 0
+  fi
+  printf '%s\n' 'slow'
+}
+
+# Decide whether an incomplete startup must stop the backend.
+#
+# A backend that is still running and answering is healthy. Stopping it would
+# destroy a working service because of a single failed probe, so it is kept
+# and the next start reuses it.
+should_stop_backend_after_failed_start() {
+  process_alive=$1
+  probe_answered=$2
+  if [ "$process_alive" = yes ] && [ "$probe_answered" = yes ]; then
+    return 1
+  fi
+  return 0
+}
+
 remove_generated_loopback_profile() {
   dsh_home=$1
   profile="${dsh_home}/profiles/web/cordis.patch.yml"

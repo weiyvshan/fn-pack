@@ -42,7 +42,9 @@ ERROR_LOG=${TRIM_TEMP_LOGFILE:-${TRIM_PKGVAR}/last-error.log}
 PORT=
 PROXY_URL=
 STARTUP_CLEANUP=false
+BACKEND_READY=false
 STARTUP_STABILITY_SECONDS=15
+STARTUP_STABILITY_MISSED_LIMIT=5
 export PATH="${PNPM_BIN}:${NODE_RUNTIME_BIN}:${PATH:-/usr/bin:/bin}"
 export DSH_FNOS_PLUGIN_POLICY=1
 export DSH_BUNDLED_SKILL_DIR="$BUNDLED_SKILL_DIR"
@@ -114,6 +116,22 @@ owned_process_running() {
   pid_matches "$pid" "$expected"
 }
 
+# Probe the backend once.
+#
+# The probe answers within a short timeout, so a busy event loop can delay the
+# reply without meaning that the backend is gone.
+backend_responds() {
+  [ -n "$PORT" ] || return 1
+  "$NODE_BIN" "$BACKEND_PROBE" "$PORT" "${1:-1000}" >/dev/null 2>&1
+}
+
+# The backend is healthy when it is still the process this installation owns
+# and it answers the readiness probe.
+backend_is_healthy() {
+  owned_process_running "$PID_FILE" "$DSH_ENTRY" || return 1
+  backend_responds 1000
+}
+
 stop_owned_process() {
   pid_file=$1
   expected=$2
@@ -142,15 +160,39 @@ stop_owned_process() {
 cleanup_incomplete_start() {
   if [ "${STARTUP_CLEANUP:-false}" = true ]; then
     STARTUP_CLEANUP=false
-    log_message "Cleaning up an incomplete DeepSeek Harness startup."
-    stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
-    rm -f -- "$SOCKET_PATH"
-    stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
-    rm -f -- "$PORT_FILE" "$AUTH_TOKEN_FILE"
+    process_alive=no
+    probe_answered=no
+    if owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
+      process_alive=yes
+    fi
+    if backend_responds 1000; then
+      probe_answered=yes
+    fi
+    if should_stop_backend_after_failed_start "$process_alive" "$probe_answered"; then
+      log_message "Cleaning up an incomplete DeepSeek Harness startup."
+      stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
+      rm -f -- "$SOCKET_PATH"
+      stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
+      rm -f -- "$PORT_FILE" "$AUTH_TOKEN_FILE"
+    else
+      # The backend survived and still answers. Stopping it here would destroy
+      # a working service because of a single failed probe, so it stays and
+      # the next start reuses it.
+      log_message "Kept the healthy DeepSeek Harness backend running after an incomplete startup."
+    fi
   fi
 }
 
 interrupt_startup() {
+  if [ "$BACKEND_READY" = true ] && backend_is_healthy; then
+    # The platform signalled the script after the backend became ready. The
+    # service is usable, so the startup is completed instead of aborted:
+    # aborting would leave the platform with a failed start while the
+    # backend is already serving.
+    log_message "DeepSeek Harness startup was interrupted after the backend became ready; completing the startup."
+    trap - 1 2 15
+    return 0
+  fi
   report_error "DeepSeek Harness 启动脚本被中断；已清理本次启动的后台进程。"
   exit 1
 }
@@ -290,14 +332,41 @@ service_status() {
 
 wait_for_backend_stability() {
   stable_for=0
+  consecutive_misses=0
   while [ "$stable_for" -lt "$STARTUP_STABILITY_SECONDS" ]; do
     sleep 1
     stable_for=$((stable_for + 1))
-    if ! owned_process_running "$PID_FILE" "$DSH_ENTRY" ||
-       ! "$NODE_BIN" "$BACKEND_PROBE" "$PORT" 1000 >/dev/null 2>&1; then
-      report_error "DeepSeek Harness 后端在初次就绪后的稳定性检查期间退出；请检查 ${LOG_FILE}。"
-      return 1
+    process_alive=no
+    probe_answered=no
+    if owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
+      process_alive=yes
     fi
+    if backend_responds 1000; then
+      probe_answered=yes
+      consecutive_misses=0
+    else
+      consecutive_misses=$((consecutive_misses + 1))
+    fi
+    state=$(backend_stability_state "$process_alive" "$probe_answered" "$consecutive_misses" "$STARTUP_STABILITY_MISSED_LIMIT")
+    case "$state" in
+      ready)
+        ;;
+      slow)
+        log_message "DeepSeek Harness backend did not answer the readiness probe yet; it is still running."
+        ;;
+      exited)
+        report_error "DeepSeek Harness 后端在初次就绪后的稳定性检查期间退出；请检查 ${LOG_FILE}。"
+        return 1
+        ;;
+      unresponsive)
+        report_error "DeepSeek Harness 后端在初次就绪后的稳定性检查期间未响应；请检查 ${LOG_FILE}。"
+        return 1
+        ;;
+      *)
+        report_error "DeepSeek Harness 后端状态判定失败：${state}。"
+        return 1
+        ;;
+    esac
   done
   log_message "DeepSeek Harness backend remained healthy for ${STARTUP_STABILITY_SECONDS} seconds."
 }
@@ -310,11 +379,27 @@ start_service() {
     log_message "DeepSeek Harness is already running."
     return 0
   fi
+  REUSE_BACKEND=false
   if [ "$current" -eq 1 ]; then
-    log_message "Repairing partial service state before startup."
-    stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
-    stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
-    rm -f -- "$SOCKET_PATH" "$PORT_FILE" "$AUTH_TOKEN_FILE"
+    reused_port=$(head -n 1 "$PORT_FILE" 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$reused_port" ]; then
+      PORT=$reused_port
+    fi
+    if [ -f "$AUTH_TOKEN_FILE" ] && backend_is_healthy; then
+      # The backend is still serving. Starting it again is the slow part of
+      # the startup, so it is kept and only the gateway proxy is repaired.
+      log_message "Reusing the healthy DeepSeek Harness backend while repairing the partial service state."
+      stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
+      rm -f -- "$SOCKET_PATH"
+      REUSE_BACKEND=true
+    else
+      log_message "Repairing partial service state before startup."
+      stop_owned_process "$PROXY_PID_FILE" "$PROXY_ENTRY" proxy
+      stop_owned_process "$PID_FILE" "$DSH_ENTRY" dsh
+      rm -f -- "$SOCKET_PATH" "$PORT_FILE" "$AUTH_TOKEN_FILE"
+      REUSE_BACKEND=false
+      PORT=
+    fi
   fi
 
   if [ ! -x "$NODE_BIN" ]; then
@@ -388,51 +473,72 @@ start_service() {
   export DSH_HOME DSH_WORKSPACE="$WORKSPACE" DSH_GATEWAY_PROFILES_ROOT="$DSH_PROFILES_ROOT" DSH_GATEWAY_COMPAT_PATH="$GATEWAY_COMPAT_PATH" DSH_WEB_AUTH_TOKEN_FILE="$AUTH_TOKEN_FILE" HOME="$TRIM_PKGHOME" HISTFILE="$SHELL_HISTORY_FILE" XDG_STATE_HOME="$SHELL_XDG_STATE_HOME" XDG_CACHE_HOME="$SHELL_XDG_CACHE_HOME" XDG_DATA_HOME="$SHELL_XDG_DATA_HOME"
   load_private_environment || return 1
   validate_proxy_runtime || return 1
-  select_loopback_port || return 1
-  rm -f -- "$AUTH_TOKEN_FILE"
+  if [ "$REUSE_BACKEND" != true ]; then
+    select_loopback_port || return 1
+    rm -f -- "$AUTH_TOKEN_FILE"
+  fi
 
-  log_message "Starting DSH on loopback port ${PORT}."
+  if [ "$REUSE_BACKEND" = true ]; then
+    log_message "Reusing the running DeepSeek Harness backend on loopback port ${PORT}."
+    BACKEND_READY=true
+    DSH_PID=$(read_pid "$PID_FILE" 2>/dev/null || true)
+  else
+    log_message "Starting DSH on loopback port ${PORT}."
+  fi
   cd "$WORKSPACE" || {
     report_error "无法进入工作区：${WORKSPACE}"
     return 1
   }
   arm_startup_cleanup
-  start_dsh_process
-  printf '%s\n' "$DSH_PID" >"$PID_FILE"
+  if [ "$REUSE_BACKEND" != true ]; then
+    start_dsh_process
+    printf '%s\n' "$DSH_PID" >"$PID_FILE"
 
-  waited=0
-  while [ "$waited" -lt 45 ]; do
-    sleep 1
-    waited=$((waited + 1))
-    if ! owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
-      report_error "DeepSeek Harness 启动后立即退出；请检查 ${LOG_FILE}。"
+    waited=0
+    while [ "$waited" -lt 45 ]; do
+      sleep 1
+      waited=$((waited + 1))
+      if ! owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
+        report_error "DeepSeek Harness 启动后立即退出；请检查 ${LOG_FILE}。"
+        return 1
+      fi
+      if backend_responds 1000; then
+        log_message "DeepSeek Harness backend HTTP endpoint is ready."
+        BACKEND_READY=true
+        break
+      fi
+    done
+    if [ "$waited" -ge 45 ]; then
+      report_error "DeepSeek Harness 后端在 45 秒内未就绪；请检查 ${LOG_FILE}。"
       return 1
     fi
-    if "$NODE_BIN" "$BACKEND_PROBE" "$PORT" 1000 >/dev/null 2>&1; then
-      log_message "DeepSeek Harness backend HTTP endpoint is ready."
-      break
-    fi
-  done
-  if [ "$waited" -ge 45 ]; then
-    report_error "DeepSeek Harness 后端在 45 秒内未就绪；请检查 ${LOG_FILE}。"
-    return 1
   fi
-  wait_for_backend_stability || return 1
   if [ ! -f "$AUTH_TOKEN_FILE" ]; then
     report_error "DeepSeek Harness 未生成统一网关所需的浏览器认证令牌。"
     return 1
   fi
 
+  # The gateway proxy is started as soon as the backend answers, so the
+  # stability window overlaps with the proxy startup instead of following it.
+  # Every second the script needs after the backend is ready is a second the
+  # service stays unreachable, and a platform that gives up on a slow start
+  # turns that delay into a failed start.
   rm -f -- "$SOCKET_PATH"
   log_message "Starting authenticated gateway proxy."
   nohup "$NODE_BIN" "$PROXY_ENTRY" "$SOCKET_PATH" "$GATEWAY_PREFIX" "127.0.0.1:${PORT}" "$GATEWAY_COMPAT_PATH" "$DSH_PROFILES_ROOT" "$AUTH_TOKEN_FILE" "$DSH_PID" >>"$LOG_FILE" 2>&1 &
   proxy_pid=$!
   printf '%s\n' "$proxy_pid" >"$PROXY_PID_FILE"
 
+  # A reused backend has been running and answering long before this start,
+  # so it does not need the settling window that a fresh backend does.
+  if [ "$REUSE_BACKEND" != true ]; then
+    wait_for_backend_stability || return 1
+  fi
+
   waited=0
   while [ "$waited" -lt 10 ]; do
     if owned_process_running "$PROXY_PID_FILE" "$PROXY_ENTRY" && [ -S "$SOCKET_PATH" ] && owned_process_running "$PID_FILE" "$DSH_ENTRY"; then
-      if "$NODE_BIN" "$BACKEND_PROBE" "$PORT" 500 >/dev/null 2>&1; then
+      if backend_responds 1000; then
         log_message "DeepSeek Harness and gateway proxy are ready."
         disarm_startup_cleanup
         return 0

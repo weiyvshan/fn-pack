@@ -234,9 +234,9 @@ if (Test-Path -LiteralPath (Join-Path $projectPath 'LICENSE')) {
   throw 'The application root must not contain a LICENSE file.'
 }
 if ($manifestFields['appname'] -cne 'deepseek-harness' -or
-    $manifestFields['version'] -cne '0.0.20' -or
+    $manifestFields['version'] -cne '0.0.21' -or
     $manifestFields['platform'] -cne 'x86') {
-  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.20, and platform x86.'
+  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.21, and platform x86.'
 }
 if ($bundledMaintenanceSkillHash -cne '309f2d6973a678533493905a779ea097a9be17c26d32aaa9bea2614e56ed07df' -or
     $bundledMaintenanceSkillText -notmatch '(?m)^name: dsh-maintenance$' -or

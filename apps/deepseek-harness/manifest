@@ -1,5 +1,5 @@
 appname                    = deepseek-harness
-version                    = 0.0.20
+version                    = 0.0.21
 display_name               = DeepSeek Harness
 desc                       = DeepSeek 官方 Agent Harness 的 fnOS 安全封装；仅通过统一网关向管理员开放，运行时由锁定的官方源码直接构建。
 platform                   = x86
@@ -14,4 +14,4 @@ desktop_applaunchname      = deepseek-harness.main
 install_dep_apps           = nodejs_v24
 ctl_stop                   = true
 disable_authorization_path = false
-changelog                  = 修复配置热重载后会话控制器无法重新注册的问题；会话创建不再因解析器未释放而失败。
+changelog                  = 修复配置热重载后会话控制器无法重新注册的问题，并修正启动时误判后端已退出而销毁健康服务的问题。

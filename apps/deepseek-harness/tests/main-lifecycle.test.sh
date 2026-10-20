@@ -46,6 +46,61 @@ else
   wrong_uid=0
 fi
 
+# The startup stability window must tell a dead backend apart from a busy one.
+# The readiness probe answers within a short timeout, so a backend that is
+# still finishing its startup work can miss it without being gone, and the
+# lifecycle script must not destroy such a backend.
+. "${SCRIPT_DIR}/../cmd/config-common"
+
+[ "$(backend_stability_state no yes 0 5)" = 'exited' ] ||
+  fail 'a missing backend process is not reported as exited'
+[ "$(backend_stability_state yes yes 0 5)" = 'ready' ] ||
+  fail 'a responsive backend is not reported as ready'
+[ "$(backend_stability_state yes no 1 5)" = 'slow' ] ||
+  fail 'a busy backend is not reported as slow'
+[ "$(backend_stability_state yes no 5 5)" = 'unresponsive' ] ||
+  fail 'a backend that keeps missing the probe is not reported as unresponsive'
+
+if should_stop_backend_after_failed_start yes yes; then
+  fail 'a healthy backend is stopped after a failed start'
+fi
+if ! should_stop_backend_after_failed_start yes no; then
+  fail 'an unresponsive backend is kept after a failed start'
+fi
+if ! should_stop_backend_after_failed_start no no; then
+  fail 'a dead backend is kept after a failed start'
+fi
+
+grep -Fq 'backend_stability_state' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not classify the backend state during the stability window'
+grep -Fq 'should_stop_backend_after_failed_start' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not keep a healthy backend after a failed start'
+grep -Fq 'Kept the healthy DeepSeek Harness backend running after an incomplete startup.' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not report the kept backend'
+grep -Fq 'Reusing the healthy DeepSeek Harness backend while repairing the partial service state.' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not reuse a healthy backend'
+grep -Fq 'completing the startup' "$MAIN_SCRIPT" ||
+  fail 'App Center startup does not complete an interrupted startup'
+if grep -Fq '! owned_process_running "$PID_FILE" "$DSH_ENTRY" ||' "$MAIN_SCRIPT"; then
+  fail 'App Center startup still treats a failed probe as a dead backend'
+fi
+
+# A busy backend must stay a recoverable condition: the slow branch may only
+# record the miss, it must never end the startup.
+slow_branch=$(sed -n '/^      slow)/,/^        ;;/p' "$MAIN_SCRIPT")
+[ -n "$slow_branch" ] || fail 'App Center startup has no slow backend branch'
+if printf '%s\n' "$slow_branch" | grep -Eq 'report_error|return 1|exit 1'; then
+  fail 'App Center startup still fails the startup for a busy backend'
+fi
+stability_window=$(sed -n '/^wait_for_backend_stability() {/,/^}/p' "$MAIN_SCRIPT")
+[ -n "$stability_window" ] || fail 'App Center startup has no stability window'
+if ! printf '%s\n' "$stability_window" | grep -Fq 'consecutive_misses=$((consecutive_misses + 1))'; then
+  fail 'App Center startup does not count a missed probe as a slow backend'
+fi
+if ! printf '%s\n' "$stability_window" | grep -Fq 'consecutive_misses=0'; then
+  fail 'App Center startup does not reset the slow backend counter'
+fi
+
 set +e
 output=$(
   TRIM_APPDEST="${FIXTURE}/app" \
