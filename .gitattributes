@@ -1,0 +1,44 @@
+# Line endings for this repository.
+#
+# The package is built and run on Linux (fnOS/Debian), and the locked upstream
+# source patches are applied with `git apply`, which requires LF bytes. A
+# Windows checkout with `core.autocrlf=true` would otherwise materialise CRLF
+# in the working tree and break both the patch application and the NAS runtime
+# files that the package ships.
+#
+# `text=auto eol=lf` keeps every text file LF in the working tree on every
+# platform, and Git normalises the index content to LF as well.
+
+* text=auto eol=lf
+
+# Binary payloads must never be line-ending converted.
+*.png binary
+*.PNG binary
+*.jpg binary
+*.JPEG binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.fpk binary
+*.gz binary
+*.tgz binary
+*.tar binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.bin binary
+*.wasm binary
+
+# The fnpack SDK binary ships with the repository.
+.agents/skills/fnnas-app-creator/bin/fnpack-1.2.3-linux-amd64 binary
+
+# Locked upstream source patches are applied byte-exactly by `git apply`.
+*.patch text eol=lf
+*.diff text eol=lf
+
+# Windows-only launchers stay LF as well: the packaged lifecycle scripts run
+# through a POSIX shell on the NAS.
+*.sh text eol=lf
+*.ps1 text eol=lf

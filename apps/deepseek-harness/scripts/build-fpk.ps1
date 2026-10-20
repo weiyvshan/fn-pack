@@ -4,6 +4,7 @@ param(
   [string]$PnpmTarball,
   [string]$LandlockTarball,
   [string]$PnpmStoreDir,
+  [string]$PackageTempDir,
   [string]$WslDistribution = 'Debian',
   [switch]$AllowDownload
 )
@@ -38,11 +39,11 @@ $sourcePatchLocks = @($runtimeLock['source_patches'])
 $pnpmLock = $runtimeLock['pnpm']
 $landlockLock = $runtimeLock['landlock_run']
 if ($runtimeLock['schema'] -ne 5 -or
-    $sourcePatchLocks.Count -ne 4 -or
+    $sourcePatchLocks.Count -ne 5 -or
     @($sourcePatchLocks | Where-Object { $_ -isnot [Collections.IDictionary] }).Count -ne 0 -or
     $pnpmLock -isnot [Collections.IDictionary] -or
     $landlockLock -isnot [Collections.IDictionary]) {
-  throw 'runtime.lock.json must use schema 5 and contain four ordered source_patches plus pnpm and landlock_run objects.'
+  throw 'runtime.lock.json must use schema 5 and contain five ordered source_patches plus pnpm and landlock_run objects.'
 }
 
 $manifestText = Get-Content -LiteralPath $manifestPath -Raw
@@ -316,6 +317,12 @@ $expectedSourcePatches = @(
     artifact_path = 'source-patches/0008-fnos-transport-defaults.patch'
     sha256 = 'cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12'
     test_target = 'packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts'
+  },
+  @{
+    path = 'patches/0009-dsh-file-upload-agent-resolver-release.patch'
+    artifact_path = 'source-patches/0009-dsh-file-upload-agent-resolver-release.patch'
+    sha256 = '3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0'
+    test_target = 'packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts'
   }
 )
 $sourcePatches = @(
@@ -678,8 +685,24 @@ try {
   Write-Utf8Json -Path $stagedBuildInfoPath -Value $buildInfo
   $stagedBuildInfoHash = (Get-FileHash -LiteralPath $stagedBuildInfoPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
+  # The staging tree copies the whole runtime, so it can need more room than a
+  # small tmpfs provides. The option keeps that copy off the system temporary
+  # directory without touching the temporary directory of the build itself.
+  $wslPackageEnvironment = @()
+  if (-not [string]::IsNullOrWhiteSpace($PackageTempDir)) {
+    $packageTempRoot = if ([IO.Path]::IsPathRooted($PackageTempDir)) {
+      $PackageTempDir
+    } else {
+      Join-Path $repositoryRoot $PackageTempDir
+    }
+    New-Item -ItemType Directory -Path $packageTempRoot -Force | Out-Null
+    $wslPackageEnvironment = @('env', "TMPDIR=$(Convert-ToWslPath $packageTempRoot)")
+  }
+
   $wslPackageArguments = @(
-    '-d', $WslDistribution, '--', 'sh',
+    '-d', $WslDistribution, '--'
+  ) + $wslPackageEnvironment + @(
+    'sh',
     (Convert-ToWslPath $linuxPackageScript),
     (Convert-ToWslPath $packageStage),
     (Convert-ToWslPath $sourceRuntimeArchive),

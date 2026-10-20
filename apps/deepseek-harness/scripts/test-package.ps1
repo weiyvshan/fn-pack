@@ -47,6 +47,7 @@ $shellFiles = @(
   Get-Item -LiteralPath (Join-Path $projectPath 'scripts/build-source-runtime.sh')
   Get-Item -LiteralPath (Join-Path $projectPath 'scripts/package-linux.sh')
   Get-Item -LiteralPath (Join-Path $projectPath 'scripts/materialize-workspace-links.sh')
+  Get-Item -LiteralPath (Join-Path $projectPath 'scripts/check-line-endings.sh')
   Get-Item -LiteralPath (Join-Path $projectPath 'tests/pnpm-launcher.test.sh')
   Get-Item -LiteralPath (Join-Path $projectPath 'tests/dsh-launcher.test.sh')
   Get-Item -LiteralPath (Join-Path $projectPath 'tests/main-lifecycle.test.sh')
@@ -74,6 +75,7 @@ $textFiles = @($shellFiles.FullName) + @($bundledSkillCreatorFiles.FullName) + @
   (Join-Path $projectPath 'scripts/check-summary-client.mjs'),
   (Join-Path $projectPath 'scripts/generate-source-runtime.mjs'),
   (Join-Path $projectPath 'scripts/prune-source-runtime.mjs'),
+  (Join-Path $projectPath 'scripts/check-line-endings.ps1'),
   (Join-Path $projectPath 'patches/0002-dsh-plugin-profile-scoped-management.patch'),
   (Join-Path $projectPath 'patches/0004-web-app-private-auth-token-handoff.patch'),
   (Join-Path $projectPath 'patches/0007-attachment-storage-respect-access-boundary.patch'),
@@ -96,6 +98,12 @@ foreach ($path in $textFiles) {
     }
   }
 }
+
+# The packaged files are only part of the repository: the bootstrap script, the
+# release workflow and every other tracked text file must stay LF as well, or a
+# Windows checkout breaks the Linux build and the patch application.
+& (Join-Path $PSScriptRoot 'check-line-endings.ps1') -RepositoryRoot $repositoryRoot
+if ($LASTEXITCODE -ne 0) { throw 'The repository line-ending guard reported CRLF content.' }
 
 $skillCreatorValidator = Join-Path $bundledSkillCreatorRoot 'scripts/quick_validate.sh'
 & $bashPath --noprofile --norc -c 'export PATH=/usr/bin:/bin; script_path=$(cygpath -u "$1"); skill_path=$(cygpath -u "$2"); exec /usr/bin/bash "$script_path" "$skill_path"' _ $skillCreatorValidator $bundledSkillCreatorRoot
@@ -226,9 +234,9 @@ if (Test-Path -LiteralPath (Join-Path $projectPath 'LICENSE')) {
   throw 'The application root must not contain a LICENSE file.'
 }
 if ($manifestFields['appname'] -cne 'deepseek-harness' -or
-    $manifestFields['version'] -cne '0.0.19' -or
+    $manifestFields['version'] -cne '0.0.20' -or
     $manifestFields['platform'] -cne 'x86') {
-  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.19, and platform x86.'
+  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.20, and platform x86.'
 }
 if ($bundledMaintenanceSkillHash -cne '309f2d6973a678533493905a779ea097a9be17c26d32aaa9bea2614e56ed07df' -or
     $bundledMaintenanceSkillText -notmatch '(?m)^name: dsh-maintenance$' -or
@@ -511,10 +519,16 @@ $expectedSourcePatches = @(
     artifact_path = 'source-patches/0008-fnos-transport-defaults.patch'
     sha256 = 'cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12'
     test_target = 'packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts'
+  },
+  @{
+    path = 'patches/0009-dsh-file-upload-agent-resolver-release.patch'
+    artifact_path = 'source-patches/0009-dsh-file-upload-agent-resolver-release.patch'
+    sha256 = '3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0'
+    test_target = 'packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts'
   }
 )
 if ($sourcePatchLocks.Count -ne $expectedSourcePatches.Count) {
-  throw 'runtime.lock.json must contain exactly four ordered source patches.'
+  throw 'runtime.lock.json must contain exactly five ordered source patches.'
 }
 for ($index = 0; $index -lt $expectedSourcePatches.Count; $index++) {
   $sourcePatchLock = $sourcePatchLocks[$index]
@@ -549,6 +563,8 @@ if ($buildText -match '\bRuntimeFpk\b' -or
     $buildText -notmatch 'source-patches/0004-web-app-private-auth-token-handoff\.patch' -or
     $buildText -notmatch 'source-patches/0007-attachment-storage-respect-access-boundary\.patch' -or
     $buildText -notmatch 'source-patches/0008-fnos-transport-defaults\.patch' -or
+    $buildText -notmatch 'source-patches/0009-dsh-file-upload-agent-resolver-release\.patch' -or
+    $buildText -notmatch '--package-temp-dir' -or
     $buildText -notmatch '\$\{appName\}_\$\{version\}_\$\{platform\}\.fpk' -or
     $sourceBuildText -notmatch 'node-linker=hoisted' -or
     $sourceBuildText -notmatch '<source-commit> <dsh-version>' -or

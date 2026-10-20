@@ -11,7 +11,10 @@ runtime_archive=$2
 fnpack=$3
 output_dir=$4
 
-stage_root=$(mktemp -d /tmp/deepseek-harness-package.XXXXXXXX)
+# The staging tree copies the whole runtime, so it needs more room than a
+# small tmpfs offers. TMPDIR lets the build host place it on a larger
+# filesystem; the default stays the system temporary directory.
+stage_root=$(mktemp -d "${TMPDIR:-/tmp}/deepseek-harness-package.XXXXXXXX")
 cleanup() {
   rm -rf -- "$stage_root"
 }

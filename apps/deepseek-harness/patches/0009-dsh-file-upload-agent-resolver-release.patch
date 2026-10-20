@@ -1,0 +1,99 @@
+diff --git a/packages/client/file-upload/src/index.ts b/packages/client/file-upload/src/index.ts
+index a7840964..ba65233e 100644
+--- a/packages/client/file-upload/src/index.ts
++++ b/packages/client/file-upload/src/index.ts
+@@ -57,7 +57,18 @@ export class FileUploads extends TypertRemoteService {
+   static inject = ['agents', 'attachments', 'commands', 'connection']
+ 
+   private readonly stagedFiles = new WeakMap<Session, Map<FileUploadReceiptId, StagedFileUpload>>()
+-  private agentResolver: AgentResolver | undefined
++  /**
++   * Holder for the current Agent resolver.
++   *
++   * The resolver lives in a plain holder object instead of a bare field: a
++   * Host service is reached through a Cordis proxy, and reading a function
++   * property through that proxy returns a fresh wrapper on every access. A
++   * field comparison would then never match the registered function, so the
++   * disposer could not release the registration and the next owner of the
++   * service would fail to register. The holder keeps the identity of the
++   * stored function comparable.
++   */
++  private readonly agentResolvers: { resolver: AgentResolver | undefined } = { resolver: undefined }
+ 
+   /** @param ctx - Host context carrying Agent, attachment, command, and Connection services. */
+   constructor(ctx: Context) {
+@@ -87,10 +98,10 @@ export class FileUploads extends TypertRemoteService {
+    * @returns disposer removing this resolver.
+    */
+   registerAgentResolver(resolve: AgentResolver): () => void {
+-    if (this.agentResolver !== undefined) throw new Error('file-upload: Agent resolver is already registered')
+-    this.agentResolver = resolve
++    if (this.agentResolvers.resolver !== undefined) throw new Error('file-upload: Agent resolver is already registered')
++    this.agentResolvers.resolver = resolve
+     return () => {
+-      if (this.agentResolver === resolve) this.agentResolver = undefined
++      if (this.agentResolvers.resolver === resolve) this.agentResolvers.resolver = undefined
+     }
+   }
+ 
+@@ -212,7 +223,7 @@ export class FileUploads extends TypertRemoteService {
+   private async resolveAgent(sessionId: SessionId): Promise<Agent> {
+     const live = this.ctx.agents.get(sessionId)
+     if (live !== undefined) return live
+-    const resolver = this.agentResolver
++    const resolver = this.agentResolvers.resolver
+     if (resolver === undefined) {
+       throw new RemoteError('session/not-found', `session "${sessionId}" is not attached`, { sessionId })
+     }
+diff --git a/packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts b/packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts
+new file mode 100755
+index 00000000..04d4496a
+--- /dev/null
++++ b/packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts
+@@ -0,0 +1,46 @@
++import { Context } from '@deepseek-ai/cordis'
++import { describe, expect, it } from 'vitest'
++import FileUploads from '../src/index.ts'
++
++/** Minimal Host services the upload service reads while it is constructed. */
++function uploadContext(): Context {
++  const ctx = new Context()
++  ctx.provide('agents', { get: () => undefined } as never)
++  ctx.provide('attachments', {} as never)
++  ctx.provide('commands', { registerFileReceiptResolver: () => () => {} } as never)
++  ctx.provide('connection', { fetch: { register: () => () => {} } } as never)
++  return ctx
++}
++
++describe('file upload Agent resolver registration', () => {
++  it('releases the registration when the resolver owner is disposed', async () => {
++    const ctx = uploadContext()
++    await ctx.plugin(FileUploads)
++    // The Host resolves the service through the context, so the disposer sees
++    // the service the way the Session Controller does.
++    const uploads = ctx.fileUploads
++    const resolver = async () => { throw new Error('the test never resolves an Agent') }
++
++    const dispose = uploads.registerAgentResolver(resolver)
++    expect(() => { uploads.registerAgentResolver(resolver) }).toThrow('already registered')
++
++    dispose()
++    expect(() => { uploads.registerAgentResolver(resolver) }).not.toThrow()
++  })
++
++  it('keeps a newer registration when an older disposer runs late', async () => {
++    const ctx = uploadContext()
++    await ctx.plugin(FileUploads)
++    const uploads = ctx.fileUploads
++    const first = async () => { throw new Error('the test never resolves an Agent') }
++    const second = async () => { throw new Error('the test never resolves an Agent') }
++
++    const disposeFirst = uploads.registerAgentResolver(first)
++    disposeFirst()
++    const disposeSecond = uploads.registerAgentResolver(second)
++
++    disposeFirst()
++    expect(() => { uploads.registerAgentResolver(second) }).toThrow('already registered')
++    disposeSecond()
++  })
++})

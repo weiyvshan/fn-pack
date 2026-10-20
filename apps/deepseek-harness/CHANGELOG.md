@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.0.20
+
+- 修复插件配置热重载后会话控制器无法重新注册的问题：`file-upload` 的 Agent 解析器改由普通对象持有，释放比较不再因 Cordis 服务代理每次返回新的函数包装而失效。
+- 新增上游回归用例 `packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts`，锁定解析器释放与重复注册行为。
+- 仓库统一使用 LF 换行：新增 `.gitattributes` 与仓库级换行守卫 `check-line-endings.sh`/`.ps1`，Windows 检出不再产生 CRLF，避免 `git apply` 与 NAS 运行时文件被破坏。
+
 ## 0.0.19
 
 - 新增内置 `init` 技能，用于创建或增量更新项目的 AGENTS.md，保留用户已有内容。

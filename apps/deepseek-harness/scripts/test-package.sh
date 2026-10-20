@@ -248,6 +248,7 @@ list_shell_files() {
         "$PROJECT/scripts/package-linux.sh" \
         "$PROJECT/scripts/materialize-workspace-links.sh" \
         "$PROJECT/scripts/resolve-upstream-source.sh" \
+        "$PROJECT/scripts/check-line-endings.sh" \
         "$PROJECT/scripts/test-package.sh" \
         "$PROJECT/tests/source-checkout.test.sh" \
         "$PROJECT/tests/pnpm-launcher.test.sh" \
@@ -280,10 +281,13 @@ list_text_files() {
         "$PROJECT/scripts/check-summary-client.mjs" \
         "$PROJECT/scripts/generate-source-runtime.mjs" \
         "$PROJECT/scripts/prune-source-runtime.mjs" \
+        "$PROJECT/scripts/check-line-endings.sh" \
+        "$PROJECT/scripts/check-line-endings.ps1" \
         "$PROJECT/patches/0002-dsh-plugin-profile-scoped-management.patch" \
         "$PROJECT/patches/0004-web-app-private-auth-token-handoff.patch" \
         "$PROJECT/patches/0007-attachment-storage-respect-access-boundary.patch" \
         "$PROJECT/patches/0008-fnos-transport-defaults.patch" \
+        "$PROJECT/patches/0009-dsh-file-upload-agent-resolver-release.patch" \
         "$PROJECT/tests/config-common.test.sh" \
         "$PROJECT/tests/fnos-open-enhancer.test.js" \
         "$PROJECT/tests/gateway-websocket.test.js" \
@@ -334,6 +338,13 @@ for text_file in $TEXT_FILES; do
         fail "CRLF line endings are not allowed in NAS runtime files: $text_file"
     fi
 done
+
+# --- repository-wide line endings ---------------------------------------------
+# The packaged files are only part of the repository: the bootstrap script, the
+# release workflow and every other tracked text file must stay LF as well, or a
+# Windows checkout breaks the Linux build and the patch application.
+bash "$PROJECT/scripts/check-line-endings.sh" "$REPO_ROOT" ||
+    fail 'The repository line-ending guard reported CRLF content.'
 
 # --- bundled skill-creator validation ----------------------------------------
 "$BASH_BIN" "$BUNDLED_SKILL_CREATOR_ROOT/scripts/quick_validate.sh" "$BUNDLED_SKILL_CREATOR_ROOT" ||
@@ -434,7 +445,7 @@ done
 
 # The manifest identity is frozen for this release.
 assert_eq "$(manifest_value appname)" 'deepseek-harness' 'The DeepSeek Harness manifest must use appname deepseek-harness.'
-assert_eq "$(manifest_value version)" '0.0.19' 'The DeepSeek Harness manifest must use version 0.0.19.'
+assert_eq "$(manifest_value version)" '0.0.20' 'The DeepSeek Harness manifest must use version 0.0.20.'
 assert_eq "$(manifest_value platform)" 'x86' 'The DeepSeek Harness manifest must use x86 platform naming.'
 
 # The bundled dsh-maintenance skill must match the reviewed source.
@@ -822,27 +833,30 @@ if [ -n "$JSON_TOOL" ]; then
         'The source runtime marker must use the locked official DSH version.'
 
     # --- locked source patches ----------------------------------------------
-    assert_eq "$(json_get "$RUNTIME_LOCK" 'len(data["source_patches"])')" '4' \
-        'runtime.lock.json must contain exactly four ordered source patches.'
+    assert_eq "$(json_get "$RUNTIME_LOCK" 'len(data["source_patches"])')" '5' \
+        'runtime.lock.json must contain exactly five ordered source patches.'
     source_patch_index=0
-    while [ "$source_patch_index" -lt 4 ]; do
+    while [ "$source_patch_index" -lt 5 ]; do
         case "$source_patch_index" in
             0) patch_slug='0002-dsh-plugin-profile-scoped-management' ;;
             1) patch_slug='0004-web-app-private-auth-token-handoff' ;;
             2) patch_slug='0007-attachment-storage-respect-access-boundary' ;;
             3) patch_slug='0008-fnos-transport-defaults' ;;
+            4) patch_slug='0009-dsh-file-upload-agent-resolver-release' ;;
         esac
         case "$source_patch_index" in
             0) patch_sha='955c619b25940b37f91e31b23b0c7f9ced89159e93edc9d648f7686fe1db05b8' ;;
             1) patch_sha='2d0042a10d0b65962309a7abe750d9b73ae1205ccc8398df6b09cd3ebafeb9ad' ;;
             2) patch_sha='592a2e95d8421a65f153b8565036c2b76e8db265b5d02aea1ce73a01033c250c' ;;
             3) patch_sha='cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12' ;;
+            4) patch_sha='3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0' ;;
         esac
         case "$source_patch_index" in
             0) patch_test_target='packages/boot/plugin-manager/tests/operations.spec.ts' ;;
             1) patch_test_target='packages/bundle/web-app/tests/web-app.spec.ts' ;;
             2) patch_test_target='packages/attachment/attachment-local/tests/store.spec.ts' ;;
             3) patch_test_target='packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts' ;;
+            4) patch_test_target='packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts' ;;
         esac
         assert_eq "$(json_get "$RUNTIME_LOCK" "data[\"source_patches\"][$source_patch_index][\"path\"]")" \
             "patches/$patch_slug.patch" \
@@ -966,6 +980,7 @@ for required in \
     'source-patches/0004-web-app-private-auth-token-handoff.patch' \
     'source-patches/0007-attachment-storage-respect-access-boundary.patch' \
     'source-patches/0008-fnos-transport-defaults.patch' \
+    'source-patches/0009-dsh-file-upload-agent-resolver-release.patch' \
     'check-summary-client.mjs' \
     'summary-client-compat.js' \
     'gateway-websocket.js' \

@@ -7,7 +7,7 @@ the platform specification.
 ## Package contract
 
 - App identity: `deepseek-harness`
-- Package version (independent fnOS release series): `0.0.19`
+- Package version (independent fnOS release series): `0.0.20`
 - Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.2`, built from official release commit `687f282e8625c6b8d11ff58211a90524be2e4317`
 - Platform: x86 only; the source runtime is built and tested as Linux x86-64
 - Runtime dependency: `nodejs_v24`
@@ -23,7 +23,7 @@ the platform specification.
 - Filesystem sandbox launcher: official `@deepseek-ai/node-addon-system-linux-x64` `0.1.2` (`bin/landlock-run`), hash-locked and functionally probed during the build
 - PTY runtime: upstream `node-pty` `1.2.0-beta.15` with the verified Linux x64 prebuild bundled in `prebuilds/linux-x64/pty.node`
 - Bundled skills: `init`, `dsh-maintenance` plus the fnOS/Linux subset of `skill-creator`, sourced from reviewed G480 user skills, shipped read-only under `${TRIM_APPDEST}/builtin-skills`, and exposed through `DSH_BUNDLED_SKILL_DIR`; the `skill-creator` package subset keeps its Markdown references and Bash helpers but excludes PowerShell scripts
-- Local source deltas: four ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, and documented Gateway/Connection transport defaults (the upstream 4096 MiB TypeScript build heap is kept as-is: 0.2.1-rc.2 host builds no longer fit under a 3072 MiB cap)
+- Local source deltas: five ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, documented Gateway/Connection transport defaults, and the file-upload Agent-resolver release fix that keeps a session controller registrable after a configuration reload (the upstream 4096 MiB TypeScript build heap is kept as-is: 0.2.1-rc.2 host builds no longer fit under a 3072 MiB cap)
 
 The package home is `${TRIM_PKGHOME}` (on the G480 target volume,
 `/vol2/@apphome/deepseek-harness`; on the YDYNAS target volume this is
@@ -112,6 +112,19 @@ upgraded, it relays the WebSocket byte stream without changing framing or the
 requesting drain for 45 seconds close the relay; EOF first flushes both queued
 write tails within the same 45-second limit. A rejected handshake closes its
 client socket after writing the response. Header and queued pre-upgrade client buffers are limited to 64 KiB.
+
+The fifth locked source patch fixes the file-upload Agent-resolver release. A Host
+service is reached through a Cordis proxy, and reading a function-valued
+property through that proxy returns a fresh wrapper on every access, so the
+upload service compared its stored resolver against a different function object
+and never released the registration. A configuration reload that re-created the
+session controller then failed with `file-upload: Agent resolver is already
+registered`, which surfaced in the browser as `sessionController is unavailable`
+for every new session while the page itself still loaded. The resolver now lives
+in a plain holder object, so the identity comparison holds and the registration
+is released with its owner. The upstream regression target
+`packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts`
+covers both the release and the late-disposer case.
 
 The package-owned changes-summary compatibility adapter accepts only the reviewed
 compiled client shape. It records a missing summary only for an HTTP `404` whose
@@ -311,9 +324,9 @@ missing copy of the outer manifest.
 `runtime.lock.json` pins its official repository, commit and tree, upstream
 `pnpm-lock.yaml` and CLI manifest hashes, DSH version, pnpm tarball and
 integrity, the official linux-x64 Landlock launcher tarball and integrity,
-the four fnOS source patches and their upstream test targets, platform, and ELF
+the five fnOS source patches and their upstream test targets, platform, and ELF
 machine identifier. The build uses `git archive` for the locked commit, verifies and
-applies all four patches in order, and does not consume an upstream or community
+applies all five patches in order, and does not consume an upstream or community
 FPK.
 
 pnpm is a DSH runtime prerequisite for `dsh plugin`, so the upstream-required
@@ -401,6 +414,34 @@ The Linux build and validation chain requires only the native `.sh`, Node.js,
 and Python entry points. It neither invokes nor checks for `pwsh`; the retained
 `.ps1` wrappers are Windows-only compatibility entry points.
 
+## Line endings
+
+The repository keeps every tracked text file in LF. The package is built and run
+on Linux, and the locked upstream source patches are applied with `git apply`,
+which requires LF bytes, so a CRLF working tree breaks the build before it
+starts.
+
+The repository root carries a `.gitattributes` that marks text files as
+`text=auto eol=lf` and pins the binary payloads as `binary`. The `eol=lf`
+attribute takes precedence over a workstation-wide `core.autocrlf=true`, so a
+Windows checkout materialises the same LF bytes as a Linux one. The Git index
+always stores LF as well, because the same attributes normalise the content on
+commit.
+
+`apps/deepseek-harness/scripts/check-line-endings.sh` and its PowerShell twin
+enforce that rule. Both contract test entry points run the guard, so a CRLF
+regression fails the package validation instead of the Linux build. The guard
+reads the working tree rather than the index, because the index cannot hold
+CRLF once the attributes are in place and the build reads the working tree.
+
+A checkout that already carried CRLF content is repaired with:
+
+```bash
+git rm --cached -r . && git reset --hard
+```
+
+which re-materialises every tracked file through the attributes.
+
 The submodule is a source archive, not a development worktree. To change
 upstream code, create a disposable worktree below `.tmp/`, apply the ordered
 patch series, edit and run the upstream tests there, then regenerate and review
@@ -410,8 +451,9 @@ inputs to `git archive` and would otherwise be silently absent from the FPK.
 
 The script archives the verified Git commit, applies the ordered hash-locked
 source patches, runs every declared upstream patch target (plugin-manager
-operations, Web authentication handoff, attachment storage, Gateway stream, and
-Connection recovery configuration) plus the real Linux Landlock confinement suite,
+operations, Web authentication handoff, attachment storage, Gateway stream,
+Connection recovery configuration, and the file-upload Agent-resolver release)
+plus the real Linux Landlock confinement suite,
 then builds the official pnpm workspace directly on Linux,
 recursively closes required workspace dependencies and peers, and deploys a
 hoisted production runtime. It removes package-manager `.bin` links and
@@ -427,7 +469,7 @@ executable modes, the source-built
 runtime retains its Linux archive modes, and a stale unversioned FPK cannot be
 mistaken for the current result. The final inspection checks normalized outer
 manifest fields, the nested `app.tgz`, source provenance, the generated
-device-readable build identity, every recorded component hash, all four
+device-readable build identity, every recorded component hash, all five
 packaged source-patch byte identities, runtime closure, pnpm runtime, both
 private-launcher byte identities, Landlock launcher identity and mode, and
 absence of an application-root `LICENSE`. The versioned artifact is named

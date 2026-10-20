@@ -30,6 +30,12 @@
       "artifact_path": "source-patches/0008-fnos-transport-defaults.patch",
       "sha256": "cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12",
       "test_target": "packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts"
+    },
+    {
+      "path": "patches/0009-dsh-file-upload-agent-resolver-release.patch",
+      "artifact_path": "source-patches/0009-dsh-file-upload-agent-resolver-release.patch",
+      "sha256": "3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0",
+      "test_target": "packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts"
     }
   ],
   "dsh_version": "0.2.1-rc.2",

@@ -32,6 +32,9 @@ Options:
   --landlock-tarball PATH  Use this locked landlock-run tarball instead of the
                            cache.
   --pnpm-store-dir DIR     Reuse or populate this pnpm content-addressable store.
+  --package-temp-dir DIR  Stage the fnpack tree under DIR instead of the system
+                           temporary directory. The staging tree copies the whole
+                           runtime, so a small tmpfs cannot hold it.
   --allow-download         Download the missing locked assets (upstream
                            submodule, pnpm tarball, landlock-run tarball).
   -h, --help               Show this help and exit.
@@ -47,6 +50,7 @@ SOURCE_TREE_ARG=''
 PNPM_TARBALL_ARG=''
 LANDLOCK_TARBALL_ARG=''
 PNPM_STORE_DIR_ARG=''
+PACKAGE_TEMP_DIR_ARG=''
 ALLOW_DOWNLOAD=0
 
 while [ "$#" -gt 0 ]; do
@@ -69,6 +73,11 @@ while [ "$#" -gt 0 ]; do
         --pnpm-store-dir)
             [ "$#" -ge 2 ] || { usage >&2; exit 2; }
             PNPM_STORE_DIR_ARG=$2
+            shift 2
+            ;;
+        --package-temp-dir)
+            [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+            PACKAGE_TEMP_DIR_ARG=$2
             shift 2
             ;;
         --allow-download)
@@ -434,11 +443,11 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 patches = lock.get("source_patches")
 if (lock.get("schema") != 5
         or not isinstance(patches, list)
-        or len(patches) != 4
+        or len(patches) != 5
         or any(not isinstance(entry, dict) for entry in patches)
         or not isinstance(lock.get("pnpm"), dict)
         or not isinstance(lock.get("landlock_run"), dict)):
-    raise SystemExit("runtime.lock.json must use schema 5 and contain four ordered source_patches plus pnpm and landlock_run objects.")
+    raise SystemExit("runtime.lock.json must use schema 5 and contain five ordered source_patches plus pnpm and landlock_run objects.")
 PY
 ) || die "$_lock_shape"
 
@@ -607,6 +616,9 @@ expected = [
     ("patches/0008-fnos-transport-defaults.patch",
      "source-patches/0008-fnos-transport-defaults.patch",
      "packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts"),
+    ("patches/0009-dsh-file-upload-agent-resolver-release.patch",
+     "source-patches/0009-dsh-file-upload-agent-resolver-release.patch",
+     "packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts"),
 ]
 
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -645,7 +657,7 @@ while IFS='|' read -r _patch_rel _patch_artifact _patch_sha256 _patch_test_targe
     printf '%s|%s|%s|%s\n' "$_patch_rel" "$_patch_artifact" "$_patch_actual" "$_patch_test_target" >> "$PATCH_LIST"
 done < "$STAGE/patch-lock.txt"
 _patch_count=$(count_lines < "$PATCH_LIST")
-[ "$_patch_count" -eq 4 ] || die "Expected four locked source patches, got $_patch_count."
+[ "$_patch_count" -eq 5 ] || die "Expected five locked source patches, got $_patch_count."
 
 # --- source-only runtime marker ---------------------------------------------
 MARKER_PATH_REL='app/server/package.json'
@@ -972,8 +984,24 @@ fnpack_path=$(bash "$FNPACK_RESOLVER" --platform linux --arch x64 --bundled-only
 printf 'fnpack=%s\n' "$fnpack_path"
 
 # package-linux.sh <package-source> <runtime.tgz> <fnpack> <output-dir>
-sh "$PACKAGE_SCRIPT" "$PACKAGE_STAGE" "$SOURCE_RUNTIME_ARCHIVE" "$fnpack_path" "$ARTIFACT_STAGE" ||
-    die 'Linux fnpack failed.'
+# The staging tree copies the whole runtime, so it can need more room than a
+# small tmpfs provides. The option keeps that copy off the system temporary
+# directory without touching the temporary directory of the build itself.
+_package_temp_env=''
+if [ -n "$PACKAGE_TEMP_DIR_ARG" ]; then
+    mkdir -p "$PACKAGE_TEMP_DIR_ARG" ||
+        die "Unable to create the packaging temporary directory: $PACKAGE_TEMP_DIR_ARG"
+    _package_temp_env="TMPDIR=$PACKAGE_TEMP_DIR_ARG"
+    printf 'PackageTempDir=%s\n' "$PACKAGE_TEMP_DIR_ARG"
+fi
+
+if [ -n "$_package_temp_env" ]; then
+    env "$_package_temp_env" sh "$PACKAGE_SCRIPT" "$PACKAGE_STAGE" "$SOURCE_RUNTIME_ARCHIVE" "$fnpack_path" "$ARTIFACT_STAGE" ||
+        die 'Linux fnpack failed.'
+else
+    sh "$PACKAGE_SCRIPT" "$PACKAGE_STAGE" "$SOURCE_RUNTIME_ARCHIVE" "$fnpack_path" "$ARTIFACT_STAGE" ||
+        die 'Linux fnpack failed.'
+fi
 
 generated_artifacts=$(find "$ARTIFACT_STAGE" -maxdepth 1 -type f -name '*.fpk' | sort)
 generated_count=$(printf '%s\n' "$generated_artifacts" | count_lines)
