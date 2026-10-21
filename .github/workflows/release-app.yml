@@ -68,6 +68,21 @@ jobs:
             echo 'TMPDIR=/vol1/fn-pack-ci' >> "$GITHUB_ENV"
           fi
 
+      - name: Prepare Magpie user namespaces
+        if: inputs.app == 'magpie'
+        run: |
+          set -euo pipefail
+          # This setting applies only to the disposable Ubuntu runner.
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          uid=$(unshare -rn bash -ec '
+            ip link set lo up
+            exec unshare --user --map-user=1000 --map-group=1000 id -u
+          ')
+          [[ "$uid" == 1000 ]]
+          printf 'Namespace preflight passed: UID=%s\n' "$uid"
+
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: inputs.app == 'cpa-manager-plus'
         with:
