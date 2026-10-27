@@ -113,7 +113,7 @@ port_busy() {
 # --- manifest ----------------------------------------------------------------
 for spec in \
     'appname=cpa-manager-plus' \
-    'version=1.0.15' \
+    'version=1.0.16' \
     'platform=x86' \
     'source=thirdparty' \
     'os_min_version=1.1.8' \
@@ -332,7 +332,7 @@ json_valid "$PROJECT/binary.lock.json" || fail 'binary.lock.json is not valid JS
 if [ -n "$JSON_TOOL" ]; then
     assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["schema_version"]')" '1' \
         'binary.lock.json schema_version must be 1.'
-    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["package_version"]')" '1.0.15' \
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["package_version"]')" '1.0.16' \
         'binary.lock.json package identity is invalid.'
     assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["package"]')" 'cpa-manager-plus' \
         'binary.lock.json package name is invalid.'

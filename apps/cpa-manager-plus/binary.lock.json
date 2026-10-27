@@ -1,34 +1,34 @@
 {
   "schema_version": 1,
   "package": "cpa-manager-plus",
-  "package_version": "1.0.15",
+  "package_version": "1.0.16",
   "components": [
     {
       "name": "cpa-manager-plus",
-      "version": "1.14.7",
+      "version": "1.14.9",
       "archive": {
-        "url": "https://github.com/seakee/CPA-Manager-Plus/releases/download/v1.14.7/cpa-manager-plus_v1.14.7_linux_amd64.tar.gz",
-        "bytes": 8628008,
-        "sha256": "37e357404597ed4e4eca86acad92e61dedf5c350eae29d14c88482c255b88563",
-        "member": "cpa-manager-plus_v1.14.7_linux_amd64/cpa-manager-plus"
+        "url": "https://github.com/seakee/CPA-Manager-Plus/releases/download/v1.14.9/cpa-manager-plus_v1.14.9_linux_amd64.tar.gz",
+        "bytes": 8802311,
+        "sha256": "d3d2d4977bbfded997656d3a65fe8f405890312c2e4a595359c5af675f029455",
+        "member": "cpa-manager-plus_v1.14.9_linux_amd64/cpa-manager-plus"
       },
-      "bytes": 23199928,
-      "sha256": "f899b76c597b308a3d8bdb97482f5d3d30aa7cd6566560016134a0e3cbf950a4",
+      "bytes": 23773346,
+      "sha256": "3e69594af65ac74262adae9dd1db80b819b878e6cc186a3b1bda676af34504f8",
       "elf_class": 64,
       "elf_data": "little-endian",
       "elf_machine": 62
     },
     {
       "name": "cli-proxy-api",
-      "version": "8.0.32",
+      "version": "8.0.44",
       "archive": {
-        "url": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.32/CLIProxyAPI_8.0.32_linux_amd64.tar.gz",
-        "bytes": 23480745,
-        "sha256": "082a4a38d9470c070ac85ab2d9c4a2aa51f9a7ee19831c3b811e26fe5b7480a7",
+        "url": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.44/CLIProxyAPI_8.0.44_linux_amd64.tar.gz",
+        "bytes": 24171994,
+        "sha256": "3957c34fe4a95a37f5997ab63d78dca431fa1521997d7c2ab3bdfe169ad89307",
         "member": "cli-proxy-api"
       },
-      "bytes": 70694728,
-      "sha256": "2851f6e036bb2613dc6ba945d08e08e13a728a386a8c0346183a4eaad5cb93d7",
+      "bytes": 72424264,
+      "sha256": "a009610743787cadea3d1ffd49b8ca4ea8789c336c95e6cac2bfe15c39153ece",
       "elf_class": 64,
       "elf_data": "little-endian",
       "elf_machine": 62

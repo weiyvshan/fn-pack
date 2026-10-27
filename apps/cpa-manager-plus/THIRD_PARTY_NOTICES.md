@@ -3,9 +3,9 @@
 CPA Manager Plus for fnOS bundles the following locked upstream release
 components:
 
-- CPA Manager Plus 1.14.7, official Linux amd64 release, copyright Seakee,
+- CPA Manager Plus 1.14.9, official Linux amd64 release, copyright Seakee,
   MIT License.
-- CLIProxyAPI 8.0.32, official Linux amd64 release, copyright Luis Pater and
+- CLIProxyAPI 8.0.44, official Linux amd64 release, copyright Luis Pater and
   Router-For.ME, MIT License.
 
 CPA Manager Plus keeps first-class CLIProxyAPI v8 configuration support,

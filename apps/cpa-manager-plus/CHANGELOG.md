@@ -2,6 +2,13 @@
 
 这里只记录飞牛打包变化与关键升级事项。组件摘要由 `binary.lock.json` 维护。
 
+## 1.0.16
+
+- 成对更新到 CPA Manager Plus `1.14.9`、CLIProxyAPI `8.0.44`。
+- `1.14.8` 修复后台刷新时的数据连续性、请求监控的来源归属、配额窗口展示与 xAI OAuth 订阅识别；`1.14.9` 只更新 Go/Node 依赖与 CI 安全检查，不动数据库、配置与凭据格式。
+- 升级保留旧配置与数据，无需迁移（`migration_required=false`）；代理最低基线仍为 `v7.3.4`，管理接口与 `access.api-keys` 等 v8 配置键不变。
+- `1.14.7` 的大库延迟覆盖索引离线 `cleanup-derived` 指引继续适用，本次不新增维护步骤。
+
 ## 1.0.15
 
 - 成对更新到 CPA Manager Plus `1.14.7`、CLIProxyAPI `8.0.32`。

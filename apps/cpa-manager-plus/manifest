@@ -1,5 +1,5 @@
 appname=cpa-manager-plus
-version=1.0.15
+version=1.0.16
 display_name=CPA Manager Plus
 desc=Manage CLIProxyAPI credentials, providers, usage, costs, quotas, and account health.
 platform=x86
@@ -14,4 +14,4 @@ desktop_applaunchname=cpa-manager-plus.main
 service_port=18317
 checkport=false
 disable_authorization_path=true
-changelog=1.0.15: Update CPA Manager Plus to 1.14.7 and CLIProxyAPI to 8.0.32. Preserve existing configuration, credentials and data. Back up the database and archive before upgrading. Existing large databases need one offline cleanup-derived run after stopping the manager to build the new latency index.
+changelog=1.0.16: Update CPA Manager Plus to 1.14.9 and CLIProxyAPI to 8.0.44. Preserve existing configuration, credentials and data. Back up the database and archive before upgrading. No database, configuration or credential migration; the 1.14.7 offline cleanup-derived guidance for large databases still applies.
