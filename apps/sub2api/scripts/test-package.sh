@@ -54,8 +54,8 @@ match_text() { printf '%s\n' "$1" | grep -Fqi -- "$2" || fail "$3"; }
 reject_text() { if printf '%s\n' "$1" | grep -Fqi -- "$2"; then fail "$3"; fi; }
 
 # --- manifest ---------------------------------------------------------------
-match_re "$manifest" '^[[:space:]]*version[[:space:]]*=[[:space:]]*1\.18[[:space:]]*$' \
-    'Manifest version must be 1.18.'
+match_re "$manifest" '^[[:space:]]*version[[:space:]]*=[[:space:]]*1\.19[[:space:]]*$' \
+    'Manifest version must be 1.19.'
 match_re "$manifest" '^[[:space:]]*service_port[[:space:]]*=[[:space:]]*18081[[:space:]]*$' \
     'Manifest service port must be 18081.'
 # fnpack computes the outer checksum from app.tgz during the build. A
@@ -78,14 +78,14 @@ import sys
 EXPECTED = {
     "sub2api": {
         "repository": "docker.io/weishaw/sub2api",
-        "tag": "0.2.17",
-        "manifest_digest": "sha256:44b59fc74b0b582750ef5f38146782db177767ef9d3f34351f1c75c157b1bb88",
+        "tag": "0.2.18",
+        "manifest_digest": "sha256:468a0b0e541e4becc05f1cf57826159235ea27a49a09f3dc2da6a43fcc05a22d",
         "source_repository": "https://github.com/Wei-Shaw/sub2api",
-        "source_commit": "060d0160417782cd962a0c7f460f6cd4565d4916",
-        "source_version": "0.2.17",
+        "source_commit": "ac1b8f1271be0d674fa6f074403c1410f30a3a81",
+        "source_version": "0.2.18",
         "platforms": {
-            "linux/amd64": "sha256:3578ce8dcddd4befa6817448472166f1501120f7876029c641de698a1a8e2ee7",
-            "linux/arm64": "sha256:bc0808e03a5e40695155a34c1e926a91167c3c60808341f31a9df14aaedbdee8",
+            "linux/amd64": "sha256:2bb343e9a3612251acaa5de81ab46ea281f0ea344af8f0596e2ac1989d5bdff4",
+            "linux/arm64": "sha256:c97aec3dca03f4cbf657baa1bed3cdf190d9bf0f6515bc5e4bb254bd25c248a2",
         },
     },
     "postgres": {
@@ -154,9 +154,9 @@ for name, want in EXPECTED.items():
             die("the %s %s manifest does not match the reviewed registry index." % (name, platform))
 
 sub2api_source = images["sub2api"]["source"]
-if sub2api_source.get("ref") != "refs/tags/v0.2.17":
-    die("the Sub2API source mapping must retain refs/tags/v0.2.17.")
-if sub2api_source.get("tag_object") != "6d6c4e701a463dcf83c261e8428e93423d6c0b3e":
+if sub2api_source.get("ref") != "refs/tags/v0.2.18":
+    die("the Sub2API source mapping must retain refs/tags/v0.2.18.")
+if sub2api_source.get("tag_object") != "de86961b627e48db75d61fff8c05535d44a00cbe":
     die("the Sub2API source mapping must retain the reviewed annotated tag identity.")
 PY
 
@@ -358,9 +358,13 @@ reject_lit "$installer" '/var/apps/${TRIM_APPNAME}' \
     'Lifecycle scripts must not reconstruct fnOS package paths.'
 
 # --- packaged license -------------------------------------------------------
+# The LICENSE ships byte-for-byte as committed, and the repository normalises
+# every text file to LF, so the expected value is the hash of upstream's LF
+# text. Compare it directly: normalising first would let a CRLF checkout pass
+# even though the packaged bytes had been rewritten.
 license_hash=$(sha256sum "$license" | awk '{print $1}')
-[ "$license_hash" = 'f831e7eed577481687a9bc0b48024e5e40b6f655fcde073ede964b50be5d55d9' ] ||
-    fail "The Sub2API LICENSE does not match upstream v0.2.17: $license_hash"
+[ "$license_hash" = 'a5681bf9b05db14d86776930017c647ad9e6e56ff6bbcfdf21e5848288dfaf1b' ] ||
+    fail "The Sub2API LICENSE does not match upstream v0.2.18: $license_hash"
 
 # --- outer and packaged declarations ----------------------------------------
 cmp -s "$outer_resource" "$inner_resource" ||
