@@ -251,6 +251,7 @@ list_shell_files() {
         "$PROJECT/scripts/check-line-endings.sh" \
         "$PROJECT/scripts/test-package.sh" \
         "$PROJECT/tests/source-checkout.test.sh" \
+        "$PROJECT/tests/build-artifact-guard.test.sh" \
         "$PROJECT/tests/pnpm-launcher.test.sh" \
         "$PROJECT/tests/dsh-launcher.test.sh" \
         "$PROJECT/tests/main-lifecycle.test.sh" \
@@ -407,6 +408,7 @@ fi
 require_file "$SOURCE_CHECKOUT_SUITE" 'The native source checkout resolver test is missing.'
 "$BASH_BIN" "$SOURCE_CHECKOUT_SUITE" || fail 'source checkout resolver tests failed.'
 RESOLVER_STATE='passed'
+"$BASH_BIN" "$PROJECT/tests/build-artifact-guard.test.sh" || fail 'build artifact guard tests failed.'
 
 # --- icons -------------------------------------------------------------------
 for spec in 'ICON.PNG=64' 'ICON_256.PNG=256' 'app/ui/images/icon_64.png=64' 'app/ui/images/icon_256.png=256'
@@ -451,7 +453,7 @@ done
 
 # The manifest identity is frozen for this release.
 assert_eq "$(manifest_value appname)" 'deepseek-harness' 'The DeepSeek Harness manifest must use appname deepseek-harness.'
-assert_eq "$(manifest_value version)" '0.0.22' 'The DeepSeek Harness manifest must use version 0.0.22.'
+assert_eq "$(manifest_value version)" '0.0.23' 'The DeepSeek Harness manifest must use version 0.0.23.'
 assert_eq "$(manifest_value platform)" 'x86' 'The DeepSeek Harness manifest must use x86 platform naming.'
 
 # The bundled dsh-maintenance skill must match the reviewed source.

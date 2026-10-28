@@ -80,6 +80,7 @@ $textFiles = @($shellFiles.FullName) + @($bundledSkillCreatorFiles.FullName) + @
   (Join-Path $projectPath 'patches/0004-web-app-private-auth-token-handoff.patch'),
   (Join-Path $projectPath 'patches/0007-attachment-storage-respect-access-boundary.patch'),
   (Join-Path $projectPath 'patches/0008-fnos-transport-defaults.patch'),
+  (Join-Path $projectPath 'patches/0009-dsh-file-upload-agent-resolver-release.patch'),
   (Join-Path $projectPath 'tests/config-common.test.sh'),
   (Join-Path $projectPath 'tests/fnos-open-enhancer.test.js'),
   (Join-Path $projectPath 'tests/gateway-websocket.test.js'),
@@ -234,9 +235,9 @@ if (Test-Path -LiteralPath (Join-Path $projectPath 'LICENSE')) {
   throw 'The application root must not contain a LICENSE file.'
 }
 if ($manifestFields['appname'] -cne 'deepseek-harness' -or
-    $manifestFields['version'] -cne '0.0.22' -or
+    $manifestFields['version'] -cne '0.0.23' -or
     $manifestFields['platform'] -cne 'x86') {
-  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.22, and platform x86.'
+  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.23, and platform x86.'
 }
 if ($bundledMaintenanceSkillHash -cne '309f2d6973a678533493905a779ea097a9be17c26d32aaa9bea2614e56ed07df' -or
     $bundledMaintenanceSkillText -notmatch '(?m)^name: dsh-maintenance$' -or
@@ -578,12 +579,12 @@ if ($buildText -match '\bRuntimeFpk\b' -or
     $sourceBuildText -notmatch 'A locked source patch test target must be under packages/' -or
     $sourceBuildText -notmatch 'vitest run --config vitest\.e2e\.config\.ts packages/sandbox/sandbox-local/tests/landlock\.e2e\.ts' -or
     $sourceBuildText -notmatch 'vitest run apps/cli/tests/args\.spec\.ts' -or
-    $sourceBuildText -notmatch 'vitest run apps/cli/tests/plugin-fnos\.spec\.ts' -or
     $sourceBuildText -notmatch 'run_vitest_with_retries 3 --config vitest\.e2e\.config\.ts apps/cli/tests/built-bin\.e2e\.ts' -or
     $sourceBuildText -notmatch 'generate-source-runtime\.mjs' -or
     $sourceBuildText -notmatch 'prune-source-runtime\.mjs' -or
     $sourceBuildText -match '--no-frozen-lockfile' -or
-    $sourceBuildText -notmatch '(?s)generate-source-runtime\.mjs.*?install --offline --frozen-lockfile' -or
+    $sourceBuildText -notmatch '(?s)generate-source-runtime\.mjs.*?install --prefer-offline --frozen-lockfile --ignore-scripts' -or
+    $sourceBuildText -match 'install --offline' -or
     $sourceBuildText -notmatch 'materialize-workspace-links\.sh' -or
     $sourceBuildText -notmatch '<landlock\.tgz>' -or
     $sourceBuildText -notmatch 'install -D -m 0755.*landlock-run' -or

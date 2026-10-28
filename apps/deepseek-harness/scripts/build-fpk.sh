@@ -176,6 +176,7 @@ THIRD_PARTY_NOTICES.md'
 
 STAGE=''
 TARGET_PATH=''
+TARGET_PUBLISHED=0
 FINALIZED=0
 
 cleanup() {
@@ -184,7 +185,7 @@ cleanup() {
     fi
     # A versioned artifact that never finished verification is not a build
     # result; drop it so the next run starts from a clean directory.
-    if [ "$FINALIZED" -eq 0 ] && [ -n "$TARGET_PATH" ] && [ -e "$TARGET_PATH" ]; then
+    if [ "$FINALIZED" -eq 0 ] && [ "$TARGET_PUBLISHED" -eq 1 ] && [ -n "$TARGET_PATH" ] && [ -e "$TARGET_PATH" ]; then
         rm -f -- "$TARGET_PATH"
     fi
     return 0
@@ -1229,6 +1230,7 @@ candidate_bytes=$(bytes_of "$candidate_path")
 candidate_hash=$(sha256_of "$candidate_path")
 mv -- "$candidate_path" "$TARGET_PATH" ||
     die "Unable to move the verified artifact into $TARGET_PATH"
+TARGET_PUBLISHED=1
 artifact_bytes=$(bytes_of "$TARGET_PATH")
 artifact_hash=$(sha256_of "$TARGET_PATH")
 [ "$artifact_bytes" = "$candidate_bytes" ] && [ "$artifact_hash" = "$candidate_hash" ] ||

@@ -7,8 +7,8 @@ the platform specification.
 ## Package contract
 
 - App identity: `deepseek-harness`
-- Package version (independent fnOS release series): `0.0.22`
-- Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.2`, built from official release commit `687f282e8625c6b8d11ff58211a90524be2e4317`
+- Package version (independent fnOS release series): `0.0.23`
+- Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.4`, built from official release commit `504a01a9578abc2c6f1fb896b1dc322c9fe24f66`
 - Platform: x86 only; the source runtime is built and tested as Linux x86-64
 - Runtime dependency: `nodejs_v24`
 - Backend: dynamically selected loopback-only `127.0.0.1` port
@@ -23,7 +23,7 @@ the platform specification.
 - Filesystem sandbox launcher: official `@deepseek-ai/node-addon-system-linux-x64` `0.1.2` (`bin/landlock-run`), hash-locked and functionally probed during the build
 - PTY runtime: upstream `node-pty` `1.2.0-beta.15` with the verified Linux x64 prebuild bundled in `prebuilds/linux-x64/pty.node`
 - Bundled skills: `init`, `dsh-maintenance` plus the fnOS/Linux subset of `skill-creator`, sourced from reviewed G480 user skills, shipped read-only under `${TRIM_APPDEST}/builtin-skills`, and exposed through `DSH_BUNDLED_SKILL_DIR`; the `skill-creator` package subset keeps its Markdown references and Bash helpers but excludes PowerShell scripts
-- Local source deltas: five ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, documented Gateway/Connection transport defaults, and the file-upload Agent-resolver release fix that keeps a session controller registrable after a configuration reload (the upstream 4096 MiB TypeScript build heap is kept as-is: 0.2.1-rc.2 host builds no longer fit under a 3072 MiB cap)
+- Local source deltas: five ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, documented Gateway/Connection transport defaults, and the file-upload Agent-resolver release fix that keeps a session controller registrable after a configuration reload (the upstream 4096 MiB TypeScript build heap is kept as-is)
 
 The package home is `${TRIM_PKGHOME}` (on the G480 target volume,
 `/vol2/@apphome/deepseek-harness`; on the YDYNAS target volume this is
@@ -140,7 +140,7 @@ and Session persistence formats are unchanged. Historical HAR captures without
 Ping, Pong, or Close frames do not establish heartbeat failure as the cause of
 those disconnects.
 
-Official DSH `0.2.1-rc.2` requires a per-process launch token before it issues
+Official DSH `0.2.1-rc.4` requires a per-process launch token before it issues
 its signed browser-session Cookie. The package passes that token to the
 administrator-only gateway through an atomic mode-`0600` file. The patched
 official Web bundle suppresses native browser opening whenever that managed
