@@ -1,5 +1,5 @@
 appname                    = sub2api
-version                    = 1.19
+version                    = 1.20
 display_name               = Sub2API
 desc                       = AI API gateway for distributing and managing subscription API quotas.
 platform                   = all
@@ -12,5 +12,5 @@ desktop_uidir              = ui
 desktop_applaunchname      = sub2api.Application
 service_port               = 18081
 checkport                  = false
-changelog                  = Update Sub2API to 0.2.18. Vertex accounts gain quota caps and Gemini or Antigravity image generation is now a per-group switch. Back up matching database and application data before the automatic migration. Composite groups do not enable image generation on upgrade, so Gemini image requests return 400 until an administrator turns it on.
-fpk_version                = 1.19
+changelog                  = Update Sub2API to 0.2.19 with scoped administrator API keys, optional per-image billing and GPT-6.1 Terra support. Preserve existing data and credentials. Back up matching database and application data before automatic migrations 247 and 248. Gemini 2.x models are removed from the default catalog and require an explicit allowlist or model mapping if still needed.
+fpk_version                = 1.20

@@ -46,7 +46,7 @@ DSH 需要 Node.js 和 C/C++ 工具链，还会运行真实的 Landlock 内核�
 
 在 [Actions](https://github.com/weiyvshan/fn-pack/actions) 中选择对应应用的工作流，手动运行可做测试构建。FPK、校验文件和日志会保存为构建附件，不会创建 Release。
 
-正式发布使用 `<appname>-v<飞牛包版本>` 格式的 tag，例如 `sub2api-v1.19`。这里用的是应用 `manifest` 中的飞牛包版本，不是上游程序或镜像的版本。
+正式发布使用 `<appname>-v<飞牛包版本>` 格式的 tag，例如 `sub2api-v1.20`。这里用的是应用 `manifest` 中的飞牛包版本，不是上游程序或镜像的版本。
 
 发布前先完成版本更新和检查，将审核通过的源码提交并推送到 `master`，再给对应提交打版本 tag。工作流会核对 tag 与安装清单，构建成功后再次校验产物摘要，最后创建 Release 并上传 FPK 和 `SHA256SUMS`。
 

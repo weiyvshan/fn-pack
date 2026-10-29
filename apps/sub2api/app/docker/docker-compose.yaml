@@ -1,6 +1,6 @@
 services:
   sub2api:
-    image: docker.io/weishaw/sub2api:0.2.18@sha256:468a0b0e541e4becc05f1cf57826159235ea27a49a09f3dc2da6a43fcc05a22d
+    image: docker.io/weishaw/sub2api:0.2.19@sha256:969e5c0fddc13f52be2772ea86e8e03ee2261f80ff08495916ffff68292c8380
     container_name: sub2api
     restart: unless-stopped
     entrypoint:
