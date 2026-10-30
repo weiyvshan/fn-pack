@@ -7,8 +7,8 @@ the platform specification.
 ## Package contract
 
 - App identity: `deepseek-harness`
-- Package version (independent fnOS release series): `0.0.23`
-- Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.4`, built from official release commit `504a01a9578abc2c6f1fb896b1dc322c9fe24f66`
+- Package version (independent fnOS release series): `0.0.24`
+- Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.5`, built from official release commit `b830ec950faba0a46dda564be3e2d854afed94f1`
 - Platform: x86 only; the source runtime is built and tested as Linux x86-64
 - Runtime dependency: `nodejs_v24`
 - Backend: dynamically selected loopback-only `127.0.0.1` port
@@ -140,7 +140,7 @@ and Session persistence formats are unchanged. Historical HAR captures without
 Ping, Pong, or Close frames do not establish heartbeat failure as the cause of
 those disconnects.
 
-Official DSH `0.2.1-rc.4` requires a per-process launch token before it issues
+Official DSH `0.2.1-rc.5` requires a per-process launch token before it issues
 its signed browser-session Cookie. The package passes that token to the
 administrator-only gateway through an atomic mode-`0600` file. The patched
 official Web bundle suppresses native browser opening whenever that managed

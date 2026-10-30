@@ -453,7 +453,7 @@ done
 
 # The manifest identity is frozen for this release.
 assert_eq "$(manifest_value appname)" 'deepseek-harness' 'The DeepSeek Harness manifest must use appname deepseek-harness.'
-assert_eq "$(manifest_value version)" '0.0.23' 'The DeepSeek Harness manifest must use version 0.0.23.'
+assert_eq "$(manifest_value version)" '0.0.24' 'The DeepSeek Harness manifest must use version 0.0.24.'
 assert_eq "$(manifest_value platform)" 'x86' 'The DeepSeek Harness manifest must use x86 platform naming.'
 
 # The bundled dsh-maintenance skill must match the reviewed source.

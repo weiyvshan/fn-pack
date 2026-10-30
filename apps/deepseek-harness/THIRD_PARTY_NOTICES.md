@@ -1,12 +1,12 @@
 # Third-party notices
 
-This fnOS integration packages `@deepseek-ai/dsh` 0.2.1-rc.4 from the locked
+This fnOS integration packages `@deepseek-ai/dsh` 0.2.1-rc.5 from the locked
 DeepSeek `deepseek-harness` Git source. DeepSeek Harness is distributed under
 the MIT License; its package and transitive dependency license files remain in
 the bundled runtime tree.
 
 The Linux x86-64 runtime is built directly from official commit
-`504a01a9578abc2c6f1fb896b1dc322c9fe24f66`. The Git tree, source lockfile,
+`b830ec950faba0a46dda564be3e2d854afed94f1`. The Git tree, source lockfile,
 CLI manifest, and target identity are recorded in `runtime.lock.json`; no
 third-party fnOS FPK contributes runtime files.
 

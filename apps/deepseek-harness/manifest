@@ -1,5 +1,5 @@
 appname                    = deepseek-harness
-version                    = 0.0.23
+version                    = 0.0.24
 display_name               = DeepSeek Harness
 desc                       = DeepSeek 官方 Agent Harness 的 fnOS 安全封装；仅通过统一网关向管理员开放，运行时由锁定的官方源码直接构建。
 platform                   = x86
@@ -14,4 +14,4 @@ desktop_applaunchname      = deepseek-harness.main
 install_dep_apps           = nodejs_v24
 ctl_stop                   = true
 disable_authorization_path = false
-changelog                  = 同步官方 DSH 0.2.1-rc.4，保留 fnOS 网关认证、插件私有存储、附件权限与连接稳定性适配。
+changelog                  = 同步官方 DSH 0.2.1-rc.5，保留 fnOS 网关认证、插件私有存储、附件权限与连接稳定性适配。

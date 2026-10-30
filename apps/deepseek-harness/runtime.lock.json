@@ -1,11 +1,11 @@
 {
   "schema": 5,
   "upstream_repository": "https://github.com/deepseek-ai/deepseek-harness.git",
-  "upstream_commit": "504a01a9578abc2c6f1fb896b1dc322c9fe24f66",
-  "upstream_tree": "ab3a8d0b467d3614c0c7f94f3b126132c820aa9f",
-  "upstream_commit_date": "2026-10-26T16:15:51+08:00",
+  "upstream_commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+  "upstream_tree": "83b5907ce7d490eaafc7f5acadb81876b25bb77a",
+  "upstream_commit_date": "2026-10-29T21:01:28+08:00",
   "pnpm_lock_sha256": "911b049924e8256d8d6e684235cf935ca75b28fd0dd46f0c3b316a51c2cf5dc1",
-  "cli_package_sha256": "78a91e9a5494ecf744446d17f196a4363e18ed4a333323626045f00dca545c09",
+  "cli_package_sha256": "5f2dc41cefd0d457e1a66fa1eda50a140e4c243a6366c2a1600e4f456a152c94",
   "source_patches": [
     {
       "path": "patches/0002-dsh-plugin-profile-scoped-management.patch",
@@ -38,7 +38,7 @@
       "test_target": "packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts"
     }
   ],
-  "dsh_version": "0.2.1-rc.4",
+  "dsh_version": "0.2.1-rc.5",
   "node_engines": "^22.19.0 || >=24.0.0",
   "pnpm": {
     "version": "11.28.5",
