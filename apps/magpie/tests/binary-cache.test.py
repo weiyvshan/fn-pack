@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import struct
 import tempfile
@@ -18,6 +19,22 @@ SPEC.loader.exec_module(PREPARE)
 class Response(io.BytesIO):
     def geturl(self):
         return "https://example.invalid/magpie"
+
+
+class ReleaseMetadataTests(unittest.TestCase):
+    def test_pinned_release_and_package_version(self):
+        project = Path(__file__).resolve().parents[1]
+        lock = json.loads((project / "binary.lock.json").read_text(encoding="utf-8"))
+        PREPARE.validate_lock(lock)
+        self.assertEqual(lock["upstream_version"], "0.1.2091")
+        self.assertEqual(lock["artifact"]["url"],
+                         "https://github.com/yetone/magpie-releases/releases/download/v0.1.2091/magpie-cli-linux-amd64")
+        self.assertEqual(lock["artifact"]["bytes"], 62312610)
+        self.assertEqual(lock["artifact"]["sha256"],
+                         "b01fd50bf4b618b5afa2eae757bb4d2ca7f85b6e35fc8789087dd49eaa3b0cf8")
+        manifest = (project / "manifest").read_text(encoding="utf-8").splitlines()
+        self.assertIn("version=0.1.2091", manifest)
+        self.assertIn("## 0.1.2091", (project / "CHANGELOG.md").read_text(encoding="utf-8").splitlines())
 
 
 class CacheTests(unittest.TestCase):
