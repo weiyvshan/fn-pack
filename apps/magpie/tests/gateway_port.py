@@ -134,7 +134,7 @@ def execute(project, old_controller, previous_version):
         for path in (state, root / "etc", root / "tmp", root / "home"):
             path.mkdir(parents=True)
         binary = target / "bin/magpie"
-        shutil.copy2(project / "app/bin/magpie", binary)
+        shutil.copytree(project / "app", target, dirs_exist_ok=True)
         binary.chmod(0o755)
         main = project / "cmd/main"
         pid_file = state / "run/web.pid"

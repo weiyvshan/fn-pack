@@ -96,10 +96,13 @@ TRIM_UID="$(require_env TRIM_UID)"
 TRIM_GID="$(require_env TRIM_GID)"
 
 BIN="${TRIM_APPDEST}/bin/${DAEMON_NAME}"
+BUNDLED_BUN="${TRIM_APPDEST}/bin/bun"
+BUILTIN_PLUGIN="${TRIM_APPDEST}/plugins/magpie-plugin"
 
 # Runtime state lives in the persistent package var directory so upgrades keep
 # keys, providers, usage and route configuration.
 STATE_ROOT="${TRIM_PKGVAR}"
+AGENT_PURGE_HOME="${STATE_ROOT}/agent-purge"
 XDG_CONFIG="${STATE_ROOT}/xdg/config"
 XDG_CACHE="${STATE_ROOT}/xdg/cache"
 XDG_DATA="${STATE_ROOT}/xdg/data"
@@ -386,6 +389,8 @@ initialise_settings() {
 run_as_package() {
     ${SETPRIV} --reuid "$TRIM_UID" --regid "$TRIM_GID" --init-groups --reset-env \
         "$ENV" -u MAGPIE_ADDR \
+        "MAGPIE_BUN=${BUNDLED_BUN}" \
+        "AGENT_PURGE_HOME=${AGENT_PURGE_HOME}" \
         "HOME=${HOME_DIR}" \
         "XDG_CONFIG_HOME=${XDG_CONFIG}" \
         "XDG_CACHE_HOME=${XDG_CACHE}" \
@@ -406,6 +411,8 @@ run_isolated() {
         return $?
     fi
     "${ENV}" -u MAGPIE_ADDR \
+        "MAGPIE_BUN=${BUNDLED_BUN}" \
+        "AGENT_PURGE_HOME=${AGENT_PURGE_HOME}" \
         "HOME=${HOME_DIR}" \
         "XDG_CONFIG_HOME=${XDG_CONFIG}" \
         "XDG_CACHE_HOME=${XDG_CACHE}" \
@@ -416,6 +423,75 @@ run_isolated() {
         LANG=C.UTF-8 \
         TZ=Asia/Shanghai \
         "$@"
+}
+
+# Register the shipped local directory, not a copied plugin or an npm spec.
+# Do all registry/marker I/O after dropping privileges: neither an unsafe path
+# nor plugin discovery may cause root to execute bundled or user plugin JS.
+# The marker is durable consent history, not a request to repair the registry:
+# after success a user's later removal/off/options must always win.
+register_builtin_plugin() {
+    is_positive_int "$TRIM_UID" && is_positive_int "$TRIM_GID" \
+        || fail "builtin plugin requires a non-root package identity"
+    [ -x "$BUNDLED_BUN" ] && [ -f "$BUILTIN_PLUGIN/package.json" ] \
+        || fail "the packaged builtin plugin or Bun runtime is missing"
+    case "$BUILTIN_PLUGIN" in /*) ;; *) fail "builtin plugin path must be absolute" ;; esac
+    run_isolated /bin/bash -c '
+        set -eu
+        umask 077
+        [ "$(/usr/bin/id -u)" != 0 ] || exit 1
+        bin=$1; plugin=$2; root=$3
+        registry="$XDG_CONFIG_HOME/magpie/plugins.json"
+        marker="$root/.builtin-agent-purge-registered"
+        # Do not follow marker/registry links, including dangling links. Existing
+        # markers must be our private, single-link regular file with exact data.
+        if [ -e "$marker" ] || [ -L "$marker" ]; then
+            [ ! -L "$marker" ] && [ -f "$marker" ] || exit 1
+            [ "$(/usr/bin/stat -c "%u:%g:%a:%h" "$marker")" = "$(/usr/bin/id -u):$(/usr/bin/id -g):600:1" ] || exit 1
+            [ "$(/usr/bin/cat "$marker")" = "builtin-agent-purge-v1" ] || exit 1
+            exit 0
+        fi
+        for dir in "$root/xdg" "$XDG_CONFIG_HOME" "$XDG_CONFIG_HOME/magpie"; do
+            [ ! -L "$dir" ] || exit 1
+            [ ! -e "$dir" ] || [ -d "$dir" ] || exit 1
+        done
+        if [ -e "$registry" ] || [ -L "$registry" ]; then
+            [ ! -L "$registry" ] && [ -f "$registry" ] || exit 1
+            [ "$(/usr/bin/stat -c %h "$registry")" = 1 ] || exit 1
+            /usr/bin/jq -e '\''type == "object" and (.plugins == null or (.plugins | type == "array")) and
+                all((.plugins // [])[]; type == "object" and (.spec | type == "string" and length > 0)
+                    and (.off == null or (.off | type == "boolean"))
+                    and (.options == null or (.options | type == "object")))'\'' "$registry" >/dev/null || exit 1
+            # Compare the installation name, never a parent directory name.
+            # Keep local basenames literal; remote specs may have a version/ref.
+            if /usr/bin/jq -e --arg spec "$plugin" '\''
+                def plugin_name:
+                    if startswith("file://") or startswith("/") or startswith("./") or startswith("../") then
+                        sub("^file://"; "") | sub("/+$"; "") | split("/")[-1]
+                    else
+                        sub("^npm:"; "") | sub("[#@][^/]*$"; "") | sub("\\.git$"; "") | split("/")[-1]
+                    end;
+                any((.plugins // [])[]; .spec != $spec and
+                    (.spec | plugin_name | test("^(magpie-plugin|agent-purge|agent-purge-hook)$")))'\'' "$registry" >/dev/null; then
+                exit 10
+            fi
+        fi
+        # Never re-add an existing entry: preserve even unknown future fields,
+        # explicit off=true, and the complete options value byte-for-byte.
+        if [ ! -f "$registry" ] || ! /usr/bin/jq -e --arg spec "$plugin" '\''any((.plugins // [])[]; .spec == $spec)'\'' "$registry" >/dev/null; then
+            "$bin" plugin add "$plugin" >/dev/null || exit 1
+        fi
+        /usr/bin/jq -e --arg spec "$plugin" '\''any((.plugins // [])[]; .spec == $spec)'\'' "$registry" >/dev/null || exit 1
+        # noclobber refuses pre-existing files and symlinks; no fixed temp path,
+        # chmod or chown can accidentally operate on an attacker-selected file.
+        (set -o noclobber; printf "%s\n" builtin-agent-purge-v1 >"$marker") || exit 1
+    ' builtin-register "$BIN" "$BUILTIN_PLUGIN" "$STATE_ROOT"
+    local result=$?
+    case "$result" in
+        0) ;;
+        10) note "builtin agent-purge registration skipped: an external plugin uses the same name" ;;
+        *) fail "unable to safely register the builtin agent-purge plugin; settings and registration marker require review" ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -501,6 +577,7 @@ start() {
     stop_owned_processes
 
     KEY="$(resolve_key)" || fail "unable to determine the management key"
+    register_builtin_plugin
     initialise_settings
     restore_account_discovery
 
@@ -509,6 +586,8 @@ start() {
         # function or subshell, or $! would record the wrapper instead).
         ${SETPRIV} --reuid "$TRIM_UID" --regid "$TRIM_GID" --init-groups --reset-env \
             "$ENV" -u MAGPIE_ADDR \
+            "MAGPIE_BUN=${BUNDLED_BUN}" \
+            "AGENT_PURGE_HOME=${AGENT_PURGE_HOME}" \
             "HOME=${HOME_DIR}" \
             "XDG_CONFIG_HOME=${XDG_CONFIG}" \
             "XDG_CACHE_HOME=${XDG_CACHE}" \
@@ -526,6 +605,8 @@ start() {
         new_pid=$!
     else
         "${ENV}" -u MAGPIE_ADDR \
+            "MAGPIE_BUN=${BUNDLED_BUN}" \
+            "AGENT_PURGE_HOME=${AGENT_PURGE_HOME}" \
             "HOME=${HOME_DIR}" \
             "XDG_CONFIG_HOME=${XDG_CONFIG}" \
             "XDG_CACHE_HOME=${XDG_CACHE}" \

@@ -2,13 +2,13 @@
   "schema_version": 1,
   "upstream_repository": "https://github.com/yetone/magpie",
   "release_repository": "https://github.com/yetone/magpie-releases",
-  "upstream_version": "0.1.2091",
+  "upstream_version": "0.1.3042",
   "license": "MIT",
   "artifact": {
     "name": "magpie-cli-linux-amd64",
-    "url": "https://github.com/yetone/magpie-releases/releases/download/v0.1.2091/magpie-cli-linux-amd64",
-    "bytes": 62312610,
-    "sha256": "b01fd50bf4b618b5afa2eae757bb4d2ca7f85b6e35fc8789087dd49eaa3b0cf8",
+    "url": "https://github.com/yetone/magpie-releases/releases/download/v0.1.3042/magpie-cli-linux-amd64",
+    "bytes": 71139490,
+    "sha256": "165e665470a66503109ed13ea6a27b0a4d1b5f04ebba83f136b8f3ffef39457f",
     "elf_class": 64,
     "elf_data": "little-endian",
     "elf_machine": 62

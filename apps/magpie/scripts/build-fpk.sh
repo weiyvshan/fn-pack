@@ -71,6 +71,8 @@ for file in manifest LICENSE ICON.PNG ICON_256.PNG; do
 done
 mkdir -p "$STAGE/app/bin"
 cp -- "$BINARY" "$STAGE/app/bin/magpie"
+python3 -I -B "$PROJECT/tests/plugin-assets.test.py"
+python3 -I -B "$PROJECT/scripts/prepare-plugins.py" --stage "$STAGE"
 python3 -I -B - "$STAGE" <<'PY'
 from pathlib import Path
 import sys
@@ -79,7 +81,7 @@ root.chmod(0o755)
 for path in root.rglob('*'):
     if path.is_symlink():
         raise SystemExit(f'Unexpected staging symlink: {path}')
-    executable = path.parent == root / 'cmd' or path == root / 'app/bin/magpie'
+    executable = path.parent == root / 'cmd' or path in (root / 'app/bin/magpie', root / 'app/bin/bun')
     path.chmod(0o755 if path.is_dir() or executable else 0o644)
 PY
 

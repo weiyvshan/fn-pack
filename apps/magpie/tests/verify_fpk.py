@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import io
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -38,7 +39,7 @@ def files(archive):
         name = path.as_posix()
         assert name not in seen, "duplicate archive member: " + name
         seen.add(name)
-        expected = 0o755 if member.isdir() or name.startswith("cmd/") or name == "bin/magpie" else 0o644
+        expected = 0o755 if member.isdir() or name.startswith("cmd/") or name in ("bin/magpie", "bin/bun") else 0o644
         assert member.mode == expected, "incorrect mode: " + name
         if member.isfile():
             members[name] = archive.extractfile(member).read()
@@ -105,17 +106,25 @@ def main():
         payload, payload_directories = files(archive)
     expected_payload = {str(path.relative_to(project / "app")) for path in (project / "app").rglob("*") if path.is_file()}
     expected_payload.add("bin/magpie")
+    plugin_spec = importlib.util.spec_from_file_location('plugin_assets', SOURCE / 'scripts/prepare-plugins.py')
+    plugin_module = importlib.util.module_from_spec(plugin_spec)
+    plugin_spec.loader.exec_module(plugin_module)
+    plugin_lock = json.loads((SOURCE / 'plugin.lock.json').read_text())
+    pinned_plugin_files = plugin_module.prepare(SOURCE.parents[1] / '.tmp/magpie-plugins', plugin_lock, offline=True)
+    expected_payload.update(pinned_plugin_files)
+    for name, content in pinned_plugin_files.items():
+        assert payload.get(name) == content, 'pinned plugin/runtime mismatch: ' + name
     # fnpack 1.2.3 also copies resource declarations into the application payload.
     expected_payload.update(str(path.relative_to(project)) for path in (project / "config").rglob("*") if path.is_file())
     assert set(payload) == expected_payload, "unexpected application payload"
     check_directories(payload_directories, expected_payload)
     private_roots = {"run", "logs", "xdg", "etc", "var", "home", "data", "cache"}
-    private_files = {"web.key", "web-url.txt", ".account-discovery-restored"}
+    private_files = {"web.key", "web-url.txt", ".account-discovery-restored", ".builtin-agent-purge-registered"}
     assert not any(Path(name).parts[0] in private_roots or Path(name).name in private_files for name in payload), "private runtime data included"
     source_binary_present = (project / "app/bin/magpie").is_file()
     for name, content in payload.items():
         source = project / name if name.startswith("config/") else project / "app" / name
-        if name == "bin/magpie" and not source_binary_present:
+        if (name == "bin/magpie" and not source_binary_present) or (name in pinned_plugin_files and not source.is_file()):
             continue
         assert content == source.read_bytes(), "payload mismatch: " + name
         compared.append("app/" + name)
@@ -132,6 +141,10 @@ def main():
         "fpk": {"name": args.fpk.name, "bytes": len(raw), "sha256": sha(raw)},
         "app_tgz": {"bytes": len(outer["app.tgz"]), "sha256": sha(outer["app.tgz"]), "md5": app_tgz_md5},
         "binary": {"bytes": len(binary), "sha256": sha(binary), "elf_machine": artifact["elf_machine"]},
+        "builtin_plugin": {"release": plugin_lock["plugin"]["release"], "commit": plugin_lock["plugin"]["commit"],
+                           "package_version": plugin_lock["plugin"]["package_version"], "matches_lock": True},
+        "bun": {"version": plugin_lock["bun"]["version"], "bytes": len(payload["bin/bun"]),
+                "sha256": sha(payload["bin/bun"]), "matches_lock": True},
         "source_matches": sorted(compared), "source_match_count": len(compared),
         "source_binary_present": source_binary_present,
         "binary_matches_lock": True, "manifest_checksum_matches_app_tgz": True,

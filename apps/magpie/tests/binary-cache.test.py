@@ -26,15 +26,15 @@ class ReleaseMetadataTests(unittest.TestCase):
         project = Path(__file__).resolve().parents[1]
         lock = json.loads((project / "binary.lock.json").read_text(encoding="utf-8"))
         PREPARE.validate_lock(lock)
-        self.assertEqual(lock["upstream_version"], "0.1.2091")
+        self.assertEqual(lock["upstream_version"], "0.1.3042")
         self.assertEqual(lock["artifact"]["url"],
-                         "https://github.com/yetone/magpie-releases/releases/download/v0.1.2091/magpie-cli-linux-amd64")
-        self.assertEqual(lock["artifact"]["bytes"], 62312610)
+                         "https://github.com/yetone/magpie-releases/releases/download/v0.1.3042/magpie-cli-linux-amd64")
+        self.assertEqual(lock["artifact"]["bytes"], 71139490)
         self.assertEqual(lock["artifact"]["sha256"],
-                         "b01fd50bf4b618b5afa2eae757bb4d2ca7f85b6e35fc8789087dd49eaa3b0cf8")
+                         "165e665470a66503109ed13ea6a27b0a4d1b5f04ebba83f136b8f3ffef39457f")
         manifest = (project / "manifest").read_text(encoding="utf-8").splitlines()
-        self.assertIn("version=0.1.2091", manifest)
-        self.assertIn("## 0.1.2091", (project / "CHANGELOG.md").read_text(encoding="utf-8").splitlines())
+        self.assertIn("version=0.1.3042-1", manifest)
+        self.assertIn("## 0.1.3042", (project / "CHANGELOG.md").read_text(encoding="utf-8").splitlines())
 
 
 class CacheTests(unittest.TestCase):

@@ -40,3 +40,9 @@ test_env=(
         /usr/bin/python3 -I -B "$1/tests/gateway_port.py" \
         --project "$2" --provenance "$MAGPIE_TEST_PROVENANCE" "${@:3}"
 ' isolated "$SOURCE" "$PROJECT" "${previous_args[@]}"
+
+/usr/bin/env -i "${test_env[@]}" /usr/bin/unshare -rn /bin/bash -c '
+    "$MAGPIE_TEST_IP" link set lo up
+    exec /usr/bin/unshare --user --map-user=1000 --map-group=1000 \
+        /usr/bin/python3 -I -B "$1/tests/builtin-plugin.py" --project "$2"
+' isolated "$SOURCE" "$PROJECT"

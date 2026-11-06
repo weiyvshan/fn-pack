@@ -67,7 +67,7 @@ WEB_PORT=3430
 GW_PORT=3425
 
 mkdir -p "$SB/appdest/bin" "$SB/varroot/apps/magpie/var" "$SB/etc" "$SB/tmp" "$SB/home" "$SB/meta"
-cp "$PROJ/app/bin/magpie" "$SB/appdest/bin/magpie"
+cp -a "$PROJ/app/." "$SB/appdest/"
 chmod 0755 "$SB/appdest/bin/magpie"
 
 export TRIM_APPNAME=magpie

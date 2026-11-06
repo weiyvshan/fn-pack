@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "plugin": {
+    "repository": "https://github.com/ZiChuanLan/agent-purge",
+    "release": "v0.2.19",
+    "commit": "09ce906fc9aeee287c9d4891dd0b96bf2db12fb6",
+    "package_version": "0.1.0",
+    "license": "MIT",
+    "filename": "agent-purge-09ce906.tar.gz",
+    "url": "https://codeload.github.com/ZiChuanLan/agent-purge/tar.gz/09ce906fc9aeee287c9d4891dd0b96bf2db12fb6",
+    "bytes": 703207,
+    "sha256": "93bd6645d5178959d80f19149db45316a7e23c7c46c0f604a5715cf9d7be2a20"
+  },
+  "bun_license": {
+    "filename": "bun-LICENSE.md",
+    "url": "https://raw.githubusercontent.com/oven-sh/bun/bun-v1.4.2/LICENSE.md",
+    "bytes": 5613,
+    "sha256": "b9caf52728691b4057e371232c221a132883198be2f3d2ddf92c90404c984b1a"
+  },
+  "bun": {
+    "repository": "https://github.com/oven-sh/bun",
+    "version": "1.4.2",
+    "license": "MIT (Bun); bundled third-party licenses",
+    "filename": "bun-1.4.2.zip",
+    "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-baseline.zip",
+    "bytes": 36646949,
+    "sha256": "c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f",
+    "member": "bun-linux-x64-baseline/bun"
+  }
+}
