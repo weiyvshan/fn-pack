@@ -54,10 +54,10 @@ match_text() { printf '%s\n' "$1" | grep -Fqi -- "$2" || fail "$3"; }
 reject_text() { if printf '%s\n' "$1" | grep -Fqi -- "$2"; then fail "$3"; fi; }
 
 # --- manifest ---------------------------------------------------------------
-match_re "$manifest" '^[[:space:]]*version[[:space:]]*=[[:space:]]*1\.20[[:space:]]*$' \
-    'Manifest version must be 1.20.'
-match_re "$manifest" '^[[:space:]]*fpk_version[[:space:]]*=[[:space:]]*1\.20[[:space:]]*$' \
-    'Manifest fpk_version must match package version 1.20.'
+match_re "$manifest" '^[[:space:]]*version[[:space:]]*=[[:space:]]*1\.21[[:space:]]*$' \
+    'Manifest version must be 1.21.'
+match_re "$manifest" '^[[:space:]]*fpk_version[[:space:]]*=[[:space:]]*1\.21[[:space:]]*$' \
+    'Manifest fpk_version must match package version 1.21.'
 match_re "$manifest" '^[[:space:]]*service_port[[:space:]]*=[[:space:]]*18081[[:space:]]*$' \
     'Manifest service port must be 18081.'
 # fnpack computes the outer checksum from app.tgz during the build. A
@@ -80,14 +80,14 @@ import sys
 EXPECTED = {
     "sub2api": {
         "repository": "docker.io/weishaw/sub2api",
-        "tag": "0.2.19",
-        "manifest_digest": "sha256:969e5c0fddc13f52be2772ea86e8e03ee2261f80ff08495916ffff68292c8380",
+        "tag": "0.2.20",
+        "manifest_digest": "sha256:ebdd50dda32e7a30c840de884d29dd7cbe52776d34fe2899733535f16a0b2813",
         "source_repository": "https://github.com/Wei-Shaw/sub2api",
-        "source_commit": "dece26153621959ccd7635814f4b2d08304e681a",
-        "source_version": "0.2.19",
+        "source_commit": "dab829a4e9b7d1cc307189aea8b0319eb29e29d0",
+        "source_version": "0.2.20",
         "platforms": {
-            "linux/amd64": "sha256:b5a90edf9f3798eafa7a0b4b2b6ebc47036ff45ac475ff6186ea28812d9e0555",
-            "linux/arm64": "sha256:8ffa77ff6648221e04372f75186a3ebc6640541e0d1a2d50d5491f57f7529ac5",
+            "linux/amd64": "sha256:e5da8d1e51cd97fab4464cdfa4e54a1466ecb470ca5ce6d4e740ebeaeef714a0",
+            "linux/arm64": "sha256:c3e8e22f9c7afddae8176cf65aa31ca90e99ab113ff33278a3b49bd220aa58d2",
         },
     },
     "postgres": {
@@ -156,9 +156,9 @@ for name, want in EXPECTED.items():
             die("the %s %s manifest does not match the reviewed registry index." % (name, platform))
 
 sub2api_source = images["sub2api"]["source"]
-if sub2api_source.get("ref") != "refs/tags/v0.2.19":
-    die("the Sub2API source mapping must retain refs/tags/v0.2.19.")
-if sub2api_source.get("tag_object") != "e60cefeaf78f2fbfa95aa076029e28b40d0a5527":
+if sub2api_source.get("ref") != "refs/tags/v0.2.20":
+    die("the Sub2API source mapping must retain refs/tags/v0.2.20.")
+if sub2api_source.get("tag_object") != "ec41309811cd30af310a0e4b9119b976ce65c9be":
     die("the Sub2API source mapping must retain the reviewed annotated tag identity.")
 PY
 
@@ -216,6 +216,12 @@ match_lit "$compose" 'sub2api-entrypoint.sh' \
     'Sub2API must use the credential-loading entrypoint wrapper.'
 reject_re "$compose" 'wizard_(service_port|runtime_secret|admin_password|admin_email)' \
     'Compose must not depend directly on install-wizard variables.'
+# Upstream 0.2.20 adds optional management MCP and a cooldown opt-out. The
+# package update must not activate either option on an existing installation.
+reject_re "$compose" '^[[:space:]]*MCP_PUBLIC_URL[[:space:]]*:' \
+    'Default Compose must not opt into management MCP.'
+reject_re "$compose" '^[[:space:]]*GATEWAY_DISABLE_OPENAI_TRANSPORT_ERROR_COOLDOWN[[:space:]]*:' \
+    'Default Compose must retain upstream transport-error cooldown behavior.'
 
 # --- desktop entry and install wizard ---------------------------------------
 match_re "$entry" '"port"[[:space:]]*:[[:space:]]*"18081"' \
@@ -366,7 +372,7 @@ reject_lit "$installer" '/var/apps/${TRIM_APPNAME}' \
 # even though the packaged bytes had been rewritten.
 license_hash=$(sha256sum "$license" | awk '{print $1}')
 [ "$license_hash" = 'a5681bf9b05db14d86776930017c647ad9e6e56ff6bbcfdf21e5848288dfaf1b' ] ||
-    fail "The Sub2API LICENSE does not match upstream v0.2.19: $license_hash"
+    fail "The Sub2API LICENSE does not match upstream v0.2.20: $license_hash"
 
 # --- outer and packaged declarations ----------------------------------------
 cmp -s "$outer_resource" "$inner_resource" ||

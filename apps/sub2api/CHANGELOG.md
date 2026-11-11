@@ -4,6 +4,21 @@
 历史材料没有独立发布日期，不补写日期，也不以源码检查代替设备验收。
 安装、数据保留与升级前置条件见 [README](README.md)。
 
+## 1.21
+
+上游版本：`0.2.19 → 0.2.20`（[上游发布说明](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.20)）。
+
+- 更新主服务镜像，锁定多架构索引与 amd64/arm64 平台摘要；两个平台镜像的 OCI revision 均与上游附注标签解出的源码提交一致。
+- 保持端口 `18081`、数据挂载、运行凭据、生命周期脚本及 PostgreSQL/Redis 镜像摘要不变，许可证文本不变。
+- 上游新增 OAuth 管理 MCP 和更细的管理员密钥权限。本包不注入 `MCP_PUBLIC_URL`，不自动启用管理 MCP，也不注入关闭 OpenAI 传输错误冷却的开关；增加对应默认行为的契约断言。
+- 网关请求体内存预算默认 `1 GiB`，请求体读取与下游写入超时默认各 `120` 秒。实际配置键为 `gateway.request_body_memory_budget_bytes`、`gateway.request_body_read_timeout_seconds`、`gateway.downstream_write_timeout_seconds`，不是上游发布说明中写的 `security.*`。
+
+升级会自动执行迁移 `249_mcp_oauth.sql`，请先保存同一时间点的数据库和应用数据备份；回退须恢复匹配备份，不能仅切换镜像。
+小内存或高并发长上下文部署应评估新的预算与超时；预算耗尽返回 `503` 和 `Retry-After`，请求体读取超时返回 `408`。
+`1 GiB` 是请求体共享预算，不是进程 RSS 上限或预分配；`120` 秒限制停滞的单次读写，不是健康 SSE 的总时长。调参时将相应键合并到已有持久数据 `config.yaml` 的 `gateway` 段，保留其余配置与密钥，再通过应用中心重启生效。设为 `0` 会禁用对应限制，不应为避免报错而一律关闭保护；不要热改安装目录中的 Compose。
+客户端断开后的上游 drain 窗口改为有界，可能影响截断请求的计费；GPT-6.1 Terra 的长上下文计费口径调整，兼容路径不再接受 `minimal` effort（返回 `400`），升级前核对相关配置和价格。
+本版尚未执行目标 NAS 的安装/升级、冷启动和业务验收；构建与离线回归不替代设备验证。
+
 ## 1.20
 
 上游版本：`0.2.18 → 0.2.19`（[上游发布说明](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.19)）。
