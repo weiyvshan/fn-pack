@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## 0.0.26
+
+- 上游从 **DSH 0.2.1-rc.5** 同步至 **0.2.2-rc.1**，锁定官方发布提交 `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`，同步源码树（`3aeac580e803b0ce82f867b1374ed494a59662c2`）、提交日期 `2026-11-04T15:54:45+08:00` 与 CLI 清单摘要（`b33dc3ea6dcbdbcbd6f0023a8bbc033f0c25aed0773e79f2f62031ca0719268b`）。
+- fnOS 侧 file-upload Agent 解析器补丁移除：0.2.2 已将该修复吸收进上游（`agentResolution` holder）。fnOS 补丁数降为四个，其余补丁已按新树重做并严格核验。
+- 上游将 Node.js 运行要求提升至 **24.9.0+**，构建检查与文档同步更新。
+- 0.0.25 未作为独立版本发布/安装，其拖拽上传修复并入本版本：统一网关改写会给文档相对路由常量重复加上网关前缀，上传 Worker 又绕过页面的 fetch/XHR 修补，最终请求 `…/app/deepseek-harness/app/deepseek-harness/api/session/uploadFileBinary` 并返回 405。现在把上传、会话导出等文档相对路由统一还原为网关相对形式，并新增覆盖这些路由的回归断言。
+- 保留四个 fnOS 兼容补丁及其严格摘要校验，并同步上游 pnpm 锁文件；包内 pnpm 11.28.5、Linux system 二进制 0.1.2 与 Node.js 24 依赖不变。
+
 ## 0.0.24
 
 - 上游从 **DSH 0.2.1-rc.4** 同步至 **0.2.1-rc.5**，锁定官方发布提交 `b830ec950faba0a46dda564be3e2d854afed94f1`，同步源码树、提交日期与 CLI 清单摘要。

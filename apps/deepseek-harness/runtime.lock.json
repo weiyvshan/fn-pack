@@ -1,16 +1,16 @@
 {
   "schema": 5,
   "upstream_repository": "https://github.com/deepseek-ai/deepseek-harness.git",
-  "upstream_commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
-  "upstream_tree": "83b5907ce7d490eaafc7f5acadb81876b25bb77a",
-  "upstream_commit_date": "2026-10-29T21:01:28+08:00",
-  "pnpm_lock_sha256": "911b049924e8256d8d6e684235cf935ca75b28fd0dd46f0c3b316a51c2cf5dc1",
-  "cli_package_sha256": "5f2dc41cefd0d457e1a66fa1eda50a140e4c243a6366c2a1600e4f456a152c94",
+  "upstream_commit": "66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db",
+  "upstream_tree": "3aeac580e803b0ce82f867b1374ed494a59662c2",
+  "upstream_commit_date": "2026-11-04T15:54:45+08:00",
+  "pnpm_lock_sha256": "aa1293f2e8d3ee82cb3cfcb0e65ba8a0ef73ab80fad4c35d7ed2f7c67b95a625",
+  "cli_package_sha256": "b33dc3ea6dcbdbcbd6f0023a8bbc033f0c25aed0773e79f2f62031ca0719268b",
   "source_patches": [
     {
       "path": "patches/0002-dsh-plugin-profile-scoped-management.patch",
       "artifact_path": "source-patches/0002-dsh-plugin-profile-scoped-management.patch",
-      "sha256": "955c619b25940b37f91e31b23b0c7f9ced89159e93edc9d648f7686fe1db05b8",
+      "sha256": "58b85a64ed9950a5eac37eff1d30621821968ebe2d3303af605179f8d34536bb",
       "test_target": "packages/boot/plugin-manager/tests/operations.spec.ts"
     },
     {
@@ -28,18 +28,12 @@
     {
       "path": "patches/0008-fnos-transport-defaults.patch",
       "artifact_path": "source-patches/0008-fnos-transport-defaults.patch",
-      "sha256": "cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12",
+      "sha256": "295c4f6c42a2d96b3c00e9f45f8468e87010c6c664fc43a7912db02c8f988063",
       "test_target": "packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts"
-    },
-    {
-      "path": "patches/0009-dsh-file-upload-agent-resolver-release.patch",
-      "artifact_path": "source-patches/0009-dsh-file-upload-agent-resolver-release.patch",
-      "sha256": "3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0",
-      "test_target": "packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts"
     }
   ],
-  "dsh_version": "0.2.1-rc.5",
-  "node_engines": "^22.19.0 || >=24.0.0",
+  "dsh_version": "0.2.2-rc.1",
+  "node_engines": ">=24.9.0",
   "pnpm": {
     "version": "11.28.5",
     "asset_name": "pnpm-11.28.5.tgz",

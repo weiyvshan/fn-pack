@@ -1,20 +1,21 @@
 # Third-party notices
 
-This fnOS integration packages `@deepseek-ai/dsh` 0.2.1-rc.5 from the locked
+This fnOS integration packages `@deepseek-ai/dsh` 0.2.2-rc.1 from the locked
 DeepSeek `deepseek-harness` Git source. DeepSeek Harness is distributed under
 the MIT License; its package and transitive dependency license files remain in
 the bundled runtime tree.
 
 The Linux x86-64 runtime is built directly from official commit
-`b830ec950faba0a46dda564be3e2d854afed94f1`. The Git tree, source lockfile,
+`66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`. The Git tree, source lockfile,
 CLI manifest, and target identity are recorded in `runtime.lock.json`; no
 third-party fnOS FPK contributes runtime files.
 
-Five local, hash-locked source patches are applied in order to the fixed
+Four local, hash-locked source patches are applied in order to the fixed
 official commit. They add fnOS profile-local pnpm-store integration to the
 upstream plugin manager, private Web authentication-token handoff, attachment
-persistence across restricted volume ancestors, Gateway/Connection transport
-defaults, and the file-upload Agent-resolver release fix. The upstream 4096 MiB
+persistence across restricted volume ancestors, and Gateway/Connection transport
+defaults. The file-upload Agent-resolver release fix is included upstream in
+0.2.2, so the fnOS-side patch has been removed. The upstream 4096 MiB
 TypeScript build heap is unchanged; no patch imports files from another FPK.
 
 This integration also packages `pnpm` 11.28.5 under the MIT License so the

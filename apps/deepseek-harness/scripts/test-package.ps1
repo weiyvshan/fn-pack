@@ -80,7 +80,6 @@ $textFiles = @($shellFiles.FullName) + @($bundledSkillCreatorFiles.FullName) + @
   (Join-Path $projectPath 'patches/0004-web-app-private-auth-token-handoff.patch'),
   (Join-Path $projectPath 'patches/0007-attachment-storage-respect-access-boundary.patch'),
   (Join-Path $projectPath 'patches/0008-fnos-transport-defaults.patch'),
-  (Join-Path $projectPath 'patches/0009-dsh-file-upload-agent-resolver-release.patch'),
   (Join-Path $projectPath 'tests/config-common.test.sh'),
   (Join-Path $projectPath 'tests/fnos-open-enhancer.test.js'),
   (Join-Path $projectPath 'tests/gateway-websocket.test.js'),
@@ -235,9 +234,9 @@ if (Test-Path -LiteralPath (Join-Path $projectPath 'LICENSE')) {
   throw 'The application root must not contain a LICENSE file.'
 }
 if ($manifestFields['appname'] -cne 'deepseek-harness' -or
-    $manifestFields['version'] -cne '0.0.24' -or
+    $manifestFields['version'] -cne '0.0.26' -or
     $manifestFields['platform'] -cne 'x86') {
-  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.24, and platform x86.'
+  throw 'The DeepSeek Harness manifest must use appname deepseek-harness, version 0.0.26, and platform x86.'
 }
 if ($bundledMaintenanceSkillHash -cne '309f2d6973a678533493905a779ea097a9be17c26d32aaa9bea2614e56ed07df' -or
     $bundledMaintenanceSkillText -notmatch '(?m)^name: dsh-maintenance$' -or
@@ -500,7 +499,7 @@ $expectedSourcePatches = @(
   @{
     path = 'patches/0002-dsh-plugin-profile-scoped-management.patch'
     artifact_path = 'source-patches/0002-dsh-plugin-profile-scoped-management.patch'
-    sha256 = '955c619b25940b37f91e31b23b0c7f9ced89159e93edc9d648f7686fe1db05b8'
+    sha256 = '58b85a64ed9950a5eac37eff1d30621821968ebe2d3303af605179f8d34536bb'
     test_target = 'packages/boot/plugin-manager/tests/operations.spec.ts'
   },
   @{
@@ -518,18 +517,12 @@ $expectedSourcePatches = @(
   @{
     path = 'patches/0008-fnos-transport-defaults.patch'
     artifact_path = 'source-patches/0008-fnos-transport-defaults.patch'
-    sha256 = 'cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12'
+    sha256 = '295c4f6c42a2d96b3c00e9f45f8468e87010c6c664fc43a7912db02c8f988063'
     test_target = 'packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts'
-  },
-  @{
-    path = 'patches/0009-dsh-file-upload-agent-resolver-release.patch'
-    artifact_path = 'source-patches/0009-dsh-file-upload-agent-resolver-release.patch'
-    sha256 = '3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0'
-    test_target = 'packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts'
   }
 )
 if ($sourcePatchLocks.Count -ne $expectedSourcePatches.Count) {
-  throw 'runtime.lock.json must contain exactly five ordered source patches.'
+  throw 'runtime.lock.json must contain exactly four ordered source patches.'
 }
 for ($index = 0; $index -lt $expectedSourcePatches.Count; $index++) {
   $sourcePatchLock = $sourcePatchLocks[$index]
@@ -564,7 +557,6 @@ if ($buildText -match '\bRuntimeFpk\b' -or
     $buildText -notmatch 'source-patches/0004-web-app-private-auth-token-handoff\.patch' -or
     $buildText -notmatch 'source-patches/0007-attachment-storage-respect-access-boundary\.patch' -or
     $buildText -notmatch 'source-patches/0008-fnos-transport-defaults\.patch' -or
-    $buildText -notmatch 'source-patches/0009-dsh-file-upload-agent-resolver-release\.patch' -or
     $buildText -notmatch '--package-temp-dir' -or
     $buildText -notmatch '\$\{appName\}_\$\{version\}_\$\{platform\}\.fpk' -or
     $sourceBuildText -notmatch 'node-linker=hoisted' -or

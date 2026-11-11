@@ -39,11 +39,11 @@ $sourcePatchLocks = @($runtimeLock['source_patches'])
 $pnpmLock = $runtimeLock['pnpm']
 $landlockLock = $runtimeLock['landlock_run']
 if ($runtimeLock['schema'] -ne 5 -or
-    $sourcePatchLocks.Count -ne 5 -or
+    $sourcePatchLocks.Count -ne 4 -or
     @($sourcePatchLocks | Where-Object { $_ -isnot [Collections.IDictionary] }).Count -ne 0 -or
     $pnpmLock -isnot [Collections.IDictionary] -or
     $landlockLock -isnot [Collections.IDictionary]) {
-  throw 'runtime.lock.json must use schema 5 and contain five ordered source_patches plus pnpm and landlock_run objects.'
+  throw 'runtime.lock.json must use schema 5 and contain four ordered source_patches plus pnpm and landlock_run objects.'
 }
 
 $manifestText = Get-Content -LiteralPath $manifestPath -Raw
@@ -315,14 +315,8 @@ $expectedSourcePatches = @(
   @{
     path = 'patches/0008-fnos-transport-defaults.patch'
     artifact_path = 'source-patches/0008-fnos-transport-defaults.patch'
-    sha256 = 'cb37de2416c84ddb48239d000cd27d00c9431825d31472e21d767ca5b6a90a12'
+    sha256 = '295c4f6c42a2d96b3c00e9f45f8468e87010c6c664fc43a7912db02c8f988063'
     test_target = 'packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts'
-  },
-  @{
-    path = 'patches/0009-dsh-file-upload-agent-resolver-release.patch'
-    artifact_path = 'source-patches/0009-dsh-file-upload-agent-resolver-release.patch'
-    sha256 = '3742e064bde2a94e9afca411e96b44f540a6232d3bb3b4872528013baa2f04f0'
-    test_target = 'packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts'
   }
 )
 $sourcePatches = @(

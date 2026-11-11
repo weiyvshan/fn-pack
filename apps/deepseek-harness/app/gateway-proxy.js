@@ -121,6 +121,20 @@ const BUILTIN_REWRITE_PREFIXES = [
   "/manifest",
   "/icons/",
 ];
+// Routes whose client constants are stored absolute but resolved document-
+// relatively (`.slice(1)` against document.baseURI). Keeping the gateway prefix
+// on them doubles the prefix under the unified gateway; see rewriteBody.
+const DOCUMENT_RELATIVE_ROUTES = [
+  "/api/remote.mux",
+  "/api/session/uploadFileBinary",
+  "/api/session.export",
+  "/api/changes.summary",
+  "/api/changes.diff",
+  "/api/changes.open",
+  "/api/present.open",
+  "/api/present.host",
+  "/api/experimental-inspector/bootstrap",
+];
 const STRIP_REQUEST_HEADERS = new Set([
   "accept-encoding",
   "origin",
@@ -1219,15 +1233,21 @@ function rewriteBody(
     .split(`${gatewayPrefix}${gatewayPrefix}`)
     .join(gatewayPrefix);
 
-  // dsh-api-gateway resolves the mux route relative to document.baseURI, so a
-  // prefixed constant would double the unified-gateway path at runtime. The
-  // guard looks for any quoted gateway-prefixed mux path so minified or
-  // refactored bundles are still recognized.
-  if (output.includes("/api/remote.mux")) {
+  // Document-relative app routes: the client keeps each absolute PATH constant
+  // and derives a browser-relative form with `.slice(1)`, then resolves it
+  // against document.baseURI. That base already ends with the gateway prefix,
+  // so a prefixed constant doubles the unified-gateway path at runtime.
+  // Page-level fetch/XHR callers are repaired by the runtime adapter, but the
+  // file-upload worker posts from its own scope where that patch does not
+  // exist, so the constant itself must stay gateway-relative. The guard looks
+  // for any quoted gateway-prefixed route so minified or refactored bundles are
+  // still recognized.
+  for (const route of DOCUMENT_RELATIVE_ROUTES) {
+    if (!output.includes(route)) continue;
     for (const boundary of ['"', "'", "`"]) {
       output = output
-        .split(`${boundary}${gatewayPrefix}/api/remote.mux${boundary}`)
-        .join(`${boundary}/api/remote.mux${boundary}`);
+        .split(`${boundary}${gatewayPrefix}${route}${boundary}`)
+        .join(`${boundary}${route}${boundary}`);
     }
   }
 

@@ -48,7 +48,7 @@ node_meets_requirement() {
   candidate_major=${candidate_version%%.*}
   candidate_tail=${candidate_version#*.}
   candidate_minor=${candidate_tail%%.*}
-  [ "$candidate_major" -gt 22 ] || { [ "$candidate_major" -eq 22 ] && [ "$candidate_minor" -ge 19 ]; }
+  [ "$candidate_major" -gt 24 ] || { [ "$candidate_major" -eq 24 ] && [ "$candidate_minor" -ge 9 ]; }
 }
 
 select_node_runtime() {
@@ -94,9 +94,9 @@ check_elf_x86_64() {
 
 select_node_runtime || {
   if command -v node >/dev/null 2>&1; then
-    printf 'Node.js 22.19 or newer is required, got %s\n' "$(node -p 'process.versions.node')" >&2
+    printf 'Node.js 24.9 or newer is required, got %s\n' "$(node -p 'process.versions.node')" >&2
   else
-    printf '%s\n' 'Node.js 22.19 or newer is required, but node was not found.' >&2
+    printf '%s\n' 'Node.js 24.9 or newer is required, but node was not found.' >&2
   fi
   exit 1
 }
@@ -105,8 +105,8 @@ node_version=$(node -p 'process.versions.node')
 node_major=${node_version%%.*}
 node_tail=${node_version#*.}
 node_minor=${node_tail%%.*}
-if [ "$node_major" -lt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -lt 19 ]; }; then
-  printf 'Node.js 22.19 or newer is required, got %s\n' "$node_version" >&2
+if [ "$node_major" -lt 24 ] || { [ "$node_major" -eq 24 ] && [ "$node_minor" -lt 9 ]; }; then
+  printf 'Node.js 24.9 or newer is required, got %s\n' "$node_version" >&2
   exit 1
 fi
 

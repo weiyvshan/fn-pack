@@ -1,34 +1,34 @@
 diff --git a/packages/api/gateway/README.md b/packages/api/gateway/README.md
-index b1b8e0c1f5..140954a060 100644
+index fea754c891..bbffff8aab 100644
 --- a/packages/api/gateway/README.md
 +++ b/packages/api/gateway/README.md
-@@ -36,7 +36,7 @@ Resources are read from the arguments validated against their Typert-compiled ty
+@@ -38,7 +38,7 @@ Resources are read from validated arguments: Typert-compiled codecs drop undecla
  
  A cancellation-aware Remote method declares `signal: AbortSignal` as its final Host parameter. The signal is descriptor metadata rather than a wire argument: Connection supplies it to the Gateway, and the Gateway injects it after decoded business parameters. SRC recognizes the reserved final name, while strict generation additionally requires the global `AbortSignal` type.
  
--A stream Remote uses `@Remote({ mode: 'stream' })` and returns an `Iterable` or `AsyncIterable`. `ctx.typertGateway.stream()` applies the same endpoint, argument, lookup, and cancellation checks as unary invocation, then returns a cancellation-aware iterable over the business items. The Client opens the Gateway-owned `/api/remote.mux` WebSocket when its plugin activates and keeps it connected while idle. Connection owns the retry schedule; before each retry it asks the mux to cancel any candidate or active socket and make exactly one fresh physical attempt. The Host sends Ping control frames at the configured `websocketHeartbeatIntervalMs` interval (two seconds by default), and the browser answers Pong at the WebSocket protocol layer, so idle network intermediaries see traffic without any Remote stream frame. A Pong, any received frame, or a downlink write that waited in the full local send buffer and then completed counts as peer activity; a socket with no activity across two Ping intervals is terminated, so a congested link that delays the Pong behind data stays connected. Independently cancellable logical streams share that socket; an in-process Connection carrier provides equivalent streams directly without opening it.
-+A stream Remote uses `@Remote({ mode: 'stream' })` and returns an `Iterable` or `AsyncIterable`. `ctx.typertGateway.stream()` applies the same endpoint, argument, lookup, and cancellation checks as unary invocation, then returns a cancellation-aware iterable over the business items. The Client opens the Gateway-owned `/api/remote.mux` WebSocket when its plugin activates and keeps it connected while idle. Connection owns the retry schedule; before each retry it asks the mux to cancel any candidate or active socket and make exactly one fresh physical attempt. The Host sends Ping control frames at the configured `websocketHeartbeatIntervalMs` interval (15 seconds by default), and the browser answers Pong at the WebSocket protocol layer, so idle network intermediaries see traffic without any Remote stream frame. A Pong, any received frame, or a downlink write that waited in the full local send buffer and then completed counts as peer activity; a socket with no activity across two Ping intervals is terminated, so a congested link that delays the Pong behind data stays connected. Independently cancellable logical streams share that socket; an in-process Connection carrier provides equivalent streams directly without opening it.
+-A stream Remote uses `@Remote({ mode: 'stream' })` and returns an `Iterable` or `AsyncIterable`. `ctx.typertGateway.stream()` applies the same endpoint, argument, lookup, and cancellation checks as unary invocation, then returns a cancellation-aware iterable over the business items. The Client opens the Gateway-owned `/api/remote.mux` WebSocket when its plugin activates and keeps it connected while idle. Connection owns the retry schedule; before each retry it asks the mux to cancel any candidate or active socket and make exactly one fresh physical attempt. The Host sends Ping control frames at the configured `websocketHeartbeatIntervalMs` interval (two seconds by default), and the browser answers Pong at the WebSocket protocol layer, so idle network intermediaries see traffic without any Remote stream frame. A Pong, any received frame, or a downlink write that does not complete at once counts as peer activity; with the default `'deflate'`, a frame whose JSON text reaches the compression threshold is deflated asynchronously, so its completion always counts. A socket with no activity across two Ping intervals is terminated, so a congested link that delays the Pong behind data stays connected. With `websocketCompression` at its `'deflate'` default, an upgrade that offers `permessage-deflate` negotiates the extension, and the Host compresses its own outbound frames whose JSON text reaches 1,024 characters; shorter frames stay uncompressed, uplink frames are compressed at the peer's discretion, and `'none'` accepts the same upgrades without the extension. Independently cancellable logical streams share that socket; an in-process Connection carrier provides equivalent streams directly without opening it.
++A stream Remote uses `@Remote({ mode: 'stream' })` and returns an `Iterable` or `AsyncIterable`. `ctx.typertGateway.stream()` applies the same endpoint, argument, lookup, and cancellation checks as unary invocation, then returns a cancellation-aware iterable over the business items. The Client opens the Gateway-owned `/api/remote.mux` WebSocket when its plugin activates and keeps it connected while idle. Connection owns the retry schedule; before each retry it asks the mux to cancel any candidate or active socket and make exactly one fresh physical attempt. The Host sends Ping control frames at the configured `websocketHeartbeatIntervalMs` interval (15 seconds by default), and the browser answers Pong at the WebSocket protocol layer, so idle network intermediaries see traffic without any Remote stream frame. A Pong, any received frame, or a downlink write that does not complete at once counts as peer activity; with the default `'deflate'`, a frame whose JSON text reaches the compression threshold is deflated asynchronously, so its completion always counts. A socket with no activity across two Ping intervals is terminated, so a congested link that delays the Pong behind data stays connected. With `websocketCompression` at its `'deflate'` default, an upgrade that offers `permessage-deflate` negotiates the extension, and the Host compresses its own outbound frames whose JSON text reaches 1,024 characters; shorter frames stay uncompressed, uplink frames are compressed at the peer's discretion, and `'none'` accepts the same upgrades without the extension. Independently cancellable logical streams share that socket; an in-process Connection carrier provides equivalent streams directly without opening it.
  
  When the launcher supplies `ctx.appReady`, Gateway registers the WebSocket upgrade route only after successful application startup. Earlier connection attempts remain carrier failures handled by Connection's retry policy, so a restarting Host cannot accept streams while its controllers are still initializing. Unloading cancels a pending readiness subscription and closes any registered carrier. Embedded Hosts without `appReady` register immediately and own their startup ordering; in-process invocation is unchanged.
  
 diff --git a/packages/api/gateway/README.zh.md b/packages/api/gateway/README.zh.md
-index 66533936cd..9896dfebd8 100644
+index 1dad623204..b6a79afd08 100644
 --- a/packages/api/gateway/README.zh.md
 +++ b/packages/api/gateway/README.zh.md
-@@ -36,7 +36,7 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
+@@ -38,7 +38,7 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
  
  支持取消的 Remote 方法会把 `signal: AbortSignal` 声明为最后一个 Host 参数。signal 是 descriptor 元数据，而不是 wire 参数：Connection 将它提供给 Gateway，Gateway 则在已解码的业务参数之后注入它。SRC 识别这个保留的末位参数名，严格生成还要求它具有全局 `AbortSignal` 类型。
  
--流式 Remote 使用 `@Remote({ mode: 'stream' })` 并返回 `Iterable` 或 `AsyncIterable`。`ctx.typertGateway.stream()` 执行与一元调用相同的 endpoint、参数、lookup 和取消校验，再返回可取消的业务项 iterable。Client 插件激活时打开 Gateway 自有的 `/api/remote.mux` WebSocket，并让它在空闲时保持连接。Connection 拥有重试调度；每次 retry 前，它要求 mux 取消候选或活动 socket，并且只做一次全新的物理连接尝试。Host 按配置的 `websocketHeartbeatIntervalMs` 间隔（默认 2 秒）发送 Ping 控制帧，浏览器在 WebSocket 协议层自动回复 Pong，使空闲网络中间层持续看到流量，而不新增 Remote 流帧。Pong、收到的任意帧，或曾在已满的本机发送缓冲区中等待后完成的下行写入，都视为对端活动；连续两个 Ping 间隔没有活动的 socket 会被终止，因此 Pong 被数据阻塞在拥塞链路上时连接仍会保持。可独立取消的逻辑流共享这条连接；进程内 Connection 载体直接提供等价的流，不打开该 WebSocket。
-+流式 Remote 使用 `@Remote({ mode: 'stream' })` 并返回 `Iterable` 或 `AsyncIterable`。`ctx.typertGateway.stream()` 执行与一元调用相同的 endpoint、参数、lookup 和取消校验，再返回可取消的业务项 iterable。Client 插件激活时打开 Gateway 自有的 `/api/remote.mux` WebSocket，并让它在空闲时保持连接。Connection 拥有重试调度；每次 retry 前，它要求 mux 取消候选或活动 socket，并且只做一次全新的物理连接尝试。Host 按配置的 `websocketHeartbeatIntervalMs` 间隔（默认 15 秒）发送 Ping 控制帧，浏览器在 WebSocket 协议层自动回复 Pong，使空闲网络中间层持续看到流量，而不新增 Remote 流帧。Pong、收到的任意帧，或曾在已满的本机发送缓冲区中等待后完成的下行写入，都视为对端活动；连续两个 Ping 间隔没有活动的 socket 会被终止，因此 Pong 被数据阻塞在拥塞链路上时连接仍会保持。可独立取消的逻辑流共享这条连接；进程内 Connection 载体直接提供等价的流，不打开该 WebSocket。
+-流式 Remote 使用 `@Remote({ mode: 'stream' })` 并返回 `Iterable` 或 `AsyncIterable`。`ctx.typertGateway.stream()` 执行与一元调用相同的 endpoint、参数、lookup 和取消校验，再返回可取消的业务项 iterable。Client 插件激活时打开 Gateway 自有的 `/api/remote.mux` WebSocket，并让它在空闲时保持连接。Connection 拥有重试调度；每次 retry 前，它要求 mux 取消候选或活动 socket，并且只做一次全新的物理连接尝试。Host 按配置的 `websocketHeartbeatIntervalMs` 间隔（默认 2 秒）发送 Ping 控制帧，浏览器在 WebSocket 协议层自动回复 Pong，使空闲网络中间层持续看到流量，而不新增 Remote 流帧。Pong、收到的任意帧，或未一次性完成的下行写入，都视为对端活动；默认 `'deflate'` 下，JSON 文本达到压缩阈值的帧异步 deflate，因此其完成总是计入。连续两个 Ping 间隔没有活动的 socket 会被终止，因此 Pong 被数据阻塞在拥塞链路上时连接仍会保持。`websocketCompression` 保持默认的 `'deflate'` 时，携带 `permessage-deflate` 的升级会协商该扩展，Host 压缩自己发出的、JSON 文本达到 1024 个字符 的帧；更短的帧不压缩，上行帧是否压缩由对端决定，设为 `'none'` 时接受同样的升级但不带该扩展。可独立取消的逻辑流共享这条连接；进程内 Connection 载体直接提供等价的流，不打开该 WebSocket。
++流式 Remote 使用 `@Remote({ mode: 'stream' })` 并返回 `Iterable` 或 `AsyncIterable`。`ctx.typertGateway.stream()` 执行与一元调用相同的 endpoint、参数、lookup 和取消校验，再返回可取消的业务项 iterable。Client 插件激活时打开 Gateway 自有的 `/api/remote.mux` WebSocket，并让它在空闲时保持连接。Connection 拥有重试调度；每次 retry 前，它要求 mux 取消候选或活动 socket，并且只做一次全新的物理连接尝试。Host 按配置的 `websocketHeartbeatIntervalMs` 间隔（默认 15 秒）发送 Ping 控制帧，浏览器在 WebSocket 协议层自动回复 Pong，使空闲网络中间层持续看到流量，而不新增 Remote 流帧。Pong、收到的任意帧，或未一次性完成的下行写入，都视为对端活动；默认 `'deflate'` 下，JSON 文本达到压缩阈值的帧异步 deflate，因此其完成总是计入。连续两个 Ping 间隔没有活动的 socket 会被终止，因此 Pong 被数据阻塞在拥塞链路上时连接仍会保持。`websocketCompression` 保持默认的 `'deflate'` 时，携带 `permessage-deflate` 的升级会协商该扩展，Host 压缩自己发出的、JSON 文本达到 1024 个字符 的帧；更短的帧不压缩，上行帧是否压缩由对端决定，设为 `'none'` 时接受同样的升级但不带该扩展。可独立取消的逻辑流共享这条连接；进程内 Connection 载体直接提供等价的流，不打开该 WebSocket。
  
  启动器提供 `ctx.appReady` 时，Gateway 仅在应用成功启动后注册 WebSocket 升级路由。此前的连接尝试仍属于载体故障，由 Connection 的重试策略处理，因此重启中的 Host 不会在控制器仍在初始化时接受流。卸载会取消尚未触发的就绪订阅，并关闭已注册的载体。不提供 `appReady` 的嵌入式 Host 会立即注册，并自行负责启动顺序；进程内调用不变。
  
 diff --git a/packages/api/gateway/src/index.ts b/packages/api/gateway/src/index.ts
-index 54dbf73f6f..6ba939c59d 100644
+index 4fe2652671..9dcd13760c 100644
 --- a/packages/api/gateway/src/index.ts
 +++ b/packages/api/gateway/src/index.ts
-@@ -144,7 +144,7 @@ interface PendingRemoteEvent {
+@@ -146,7 +146,7 @@ interface PendingRemoteEvent {
  type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
  type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
  const NEVER_ABORTED_SIGNAL = new AbortController().signal
@@ -37,7 +37,7 @@ index 54dbf73f6f..6ba939c59d 100644
  const DEFAULT_STREAM_INBOX_BYTES = 262_144
  const EMPTY_ASYNC_ITERABLE: AsyncIterable<never> = {
    [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true }) }),
-@@ -154,7 +154,7 @@ const SRC_JSON_CODEC: TypertCodec = { mode: 'src-json' }
+@@ -156,7 +156,7 @@ const SRC_JSON_CODEC: TypertCodec = { mode: 'src-json' }
  
  /** Gateway transport configuration. */
  export interface Config {
@@ -47,20 +47,18 @@ index 54dbf73f6f..6ba939c59d 100644
    /** Buffered uplink frame bytes one logical stream may hold before it fails with `gateway/uplink-overflow`. @default 262144 */
    readonly streamInboxBytes?: number
 diff --git a/packages/api/gateway/tests/gateway-stream.host.spec.ts b/packages/api/gateway/tests/gateway-stream.host.spec.ts
-index 72a46e21f6..d4e0025d5b 100644
+index 708b093f0c..7d51732e21 100644
 --- a/packages/api/gateway/tests/gateway-stream.host.spec.ts
 +++ b/packages/api/gateway/tests/gateway-stream.host.spec.ts
-@@ -417,7 +417,9 @@ describe('Typert Remote streams', () => {
-   })
+@@ -418,7 +418,7 @@ describe('Typert Remote streams', () => {
  
-   it('validates the WebSocket heartbeat timer range and the stream inbox bound', () => {
--    expect(TypertGatewayService.Config({})).toEqual({ websocketHeartbeatIntervalMs: 2_000, streamInboxBytes: 262_144 })
-+    expect(TypertGatewayService.Config({})).toEqual({ websocketHeartbeatIntervalMs: 15_000, streamInboxBytes: 262_144 })
-+    expect(TypertGatewayService.Config({ websocketHeartbeatIntervalMs: 2_000, streamInboxBytes: 1 }))
-+      .toEqual({ websocketHeartbeatIntervalMs: 2_000, streamInboxBytes: 1 })
-     expect(TypertGatewayService.Config({ websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS, streamInboxBytes: 1 }))
-       .toEqual({ websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS, streamInboxBytes: 1 })
-     for (const websocketHeartbeatIntervalMs of [0, 1.5, MAX_TIMER_DELAY_MS + 1]) {
+   it('validates the WebSocket heartbeat timer range, the stream inbox bound, and the compression mode', () => {
+     expect(TypertGatewayService.Config({})).toEqual({
+-      websocketHeartbeatIntervalMs: 2_000,
++      websocketHeartbeatIntervalMs: 15_000,
+       streamInboxBytes: 262_144,
+       websocketCompression: 'deflate',
+     })
 diff --git a/packages/client/connection/README.md b/packages/client/connection/README.md
 index e6de487bdb..3ac4f460fd 100644
 --- a/packages/client/connection/README.md

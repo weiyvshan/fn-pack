@@ -502,6 +502,34 @@ assert.equal(
 );
 assert.equal(rewriteBody(rewrittenRemoteMuxClient, prefix), rewrittenRemoteMuxClient);
 
+// Every document-relative route must survive the gateway prefix strip so a
+// `.slice(1)` route resolved against document.baseURI lands back under the
+// gateway exactly once. The upload route matters most: its worker posts from a
+// scope without the page-level fetch/XHR rewrite, so a doubled path is fatal.
+for (const route of [
+  "/api/remote.mux",
+  "/api/session/uploadFileBinary",
+  "/api/session.export",
+  "/api/changes.summary",
+  "/api/changes.diff",
+  "/api/changes.open",
+  "/api/present.open",
+  "/api/present.host",
+  "/api/experimental-inspector/bootstrap",
+]) {
+  const name = `${route.slice(route.lastIndexOf("/") + 1).replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}_PATH`;
+  const source = `const ${name} = "${route}";\nconst ROUTE = ${name}.slice(1);`;
+  const rewritten = rewriteBody(source, prefix);
+  assert.ok(!rewritten.includes(`${prefix}${route}`), `${route} must lose the gateway prefix`);
+  const constant = new RegExp(`${name} = "([^"]+)"`).exec(rewritten)?.[1];
+  assert.equal(constant, route);
+  assert.equal(
+    new URL(constant.slice(1), `https://nas.test${prefix}/`).pathname,
+    `${prefix}${route}`,
+  );
+  assert.equal(rewriteBody(rewritten, prefix), rewritten);
+}
+
 const openedSockets = [];
 const fetchedUrls = [];
 function NativeWebSocket(url) {

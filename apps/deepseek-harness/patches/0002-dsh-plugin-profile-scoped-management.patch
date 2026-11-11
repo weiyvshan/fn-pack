@@ -1,5 +1,7 @@
 diff --git a/packages/boot/plugin-manager/src/operations.ts b/packages/boot/plugin-manager/src/operations.ts
-index b9a36d6083..ebf35baeff 100644
+old mode 100644
+new mode 100755
+index d0ab1dccab..c29d467232
 --- a/packages/boot/plugin-manager/src/operations.ts
 +++ b/packages/boot/plugin-manager/src/operations.ts
 @@ -1,9 +1,10 @@
@@ -16,7 +18,7 @@ index b9a36d6083..ebf35baeff 100644
  import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
  import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
  import {
-@@ -54,6 +55,23 @@ export interface PackageOperationOptions {
+@@ -55,6 +56,23 @@ export interface PackageOperationOptions {
    lookupTimeoutMs?: number
  }
  
@@ -40,7 +42,7 @@ index b9a36d6083..ebf35baeff 100644
  /** Resolve relative package specs against the caller's directory.
   * @param argument One pnpm argument.
   * @param cwd Invocation directory, never the profile directory.
-@@ -239,6 +257,55 @@ async function activeRecordedRun(dir: string): Promise<string | undefined> {
+@@ -248,6 +266,55 @@ async function activeRecordedRun(dir: string): Promise<string | undefined> {
    return undefined
  }
  
@@ -96,7 +98,7 @@ index b9a36d6083..ebf35baeff 100644
  /** pnpm can install plugins through any direct-dependency field. */
  function directDependencies(manifest: ProfileManifest): Record<string, string> {
    const extra = manifest as ProfileManifest & { devDependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }
-@@ -284,18 +351,32 @@ function bundleComponentManifests(manifest: ProfileManifest, dir: string, anchor
+@@ -295,18 +362,32 @@ function bundleComponentManifests(manifest: ProfileManifest, dir: string, anchor
   */
  export async function runProfilePnpm(
    context: PackageOperationContext, args: readonly string[], options: PackageOperationOptions,
@@ -135,7 +137,7 @@ index b9a36d6083..ebf35baeff 100644
      options.onOutput?.(active, 'stderr')
      const bytes = Buffer.from(active)
      return { exitCode: 1, output: bytes.subarray(Math.max(0, bytes.length - options.outputBytes)).toString('utf8'), truncated: bytes.length > options.outputBytes, logPath }
-@@ -304,16 +385,18 @@ export async function runProfilePnpm(
+@@ -315,16 +396,18 @@ export async function runProfilePnpm(
    const savedFiles = ['package.json', 'pnpm-lock.yaml'].map(name => ({ path: join(dir, name), text: optionalFile(join(dir, name)) }))
    const beforeDependencies = directDependencies(before)
    const installedBefore = new Map(Object.keys(beforeDependencies).map(name => [name, optionalFile(join(dir, 'node_modules', name, 'package.json'))]))
@@ -161,7 +163,7 @@ index b9a36d6083..ebf35baeff 100644
    const restore = async (): Promise<void> => {
      for (const file of savedFiles) {
        if (file.text === undefined) await rm(file.path, { force: true })
-@@ -327,8 +410,11 @@ export async function runProfilePnpm(
+@@ -338,8 +421,11 @@ export async function runProfilePnpm(
      await log.write(diagnostic)
      options.onOutput?.(diagnostic, 'stderr')
      append(Buffer.from(diagnostic))
@@ -175,7 +177,7 @@ index b9a36d6083..ebf35baeff 100644
    }
    // An install command names the packages it adds, so their manifests are read and checked before
    // pnpm runs: an incompatible version is never installed, and the one already in use keeps working.
-@@ -350,6 +436,47 @@ export async function runProfilePnpm(
+@@ -361,6 +447,47 @@ export async function runProfilePnpm(
      } catch (error) { void error; continue }
    }
    if (preflight.length > 0) return await rejected(preflight, 'nothing was installed')
@@ -223,7 +225,7 @@ index b9a36d6083..ebf35baeff 100644
    const cancellation = new AbortController()
    // A service run captures output, so execa terminates the tree it leads when the
    // run is killed: a lifecycle script outlives the pnpm process that started it.
-@@ -366,6 +493,7 @@ export async function runProfilePnpm(
+@@ -377,6 +504,7 @@ export async function runProfilePnpm(
    // Listened for before the record is written, so an exit during that write is not missed.
    const exited = once(child.nodeChildProcess, 'exit').catch(() => undefined)
    let writes = Promise.resolve()
@@ -231,7 +233,7 @@ index b9a36d6083..ebf35baeff 100644
    /** `settled` records that the process outcome is known; `stalled` that the silence bound stopped the run. */
    const control = { settled: false, stalled: false }
    /** Set once this call cuts the reading short itself, so the close it causes is not read as a run failure. */
-@@ -388,6 +516,7 @@ export async function runProfilePnpm(
+@@ -399,6 +527,7 @@ export async function runProfilePnpm(
        for await (const chunk of stream) {
          armIdle()
          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
@@ -239,7 +241,7 @@ index b9a36d6083..ebf35baeff 100644
          writes = writes.then(async () => { await log.write(bytes) })
          await writes
          options.onOutput?.(bytes.toString('utf8'), kind)
-@@ -439,6 +568,7 @@ export async function runProfilePnpm(
+@@ -450,6 +579,7 @@ export async function runProfilePnpm(
        child.stdout?.destroy()
        child.stderr?.destroy()
        const notice = 'dsh: pnpm output was cut short after its process exited\n'
@@ -247,7 +249,7 @@ index b9a36d6083..ebf35baeff 100644
        await log.write(notice)
        // A failure from before the cut is the run's own and replaces the notice a
        // caller would otherwise read; a rejection the cut itself causes is its end.
-@@ -452,15 +582,15 @@ export async function runProfilePnpm(
+@@ -463,17 +593,17 @@ export async function runProfilePnpm(
      exitCode = result.exitCode ?? (result.code === 'ENOENT' ? 127 : 1)
      if (control.stalled) {
        const notice = `dsh: pnpm printed nothing for ${String(options.idleTimeoutMs)}ms and was terminated\n`
@@ -260,13 +262,15 @@ index b9a36d6083..ebf35baeff 100644
 +    if (result.failed && !runOutputObserved) {
        const diagnostic = result.shortMessage ?? 'pnpm failed'
        await log.write(diagnostic)
+       // The run printed nothing, so this diagnostic is the whole of its captured output; stream it as such.
+       options.onOutput?.(diagnostic, 'stderr')
 -      truncated = Buffer.byteLength(diagnostic) > options.outputBytes
 -      output = Buffer.from(diagnostic).subarray(0, options.outputBytes)
 +      append(Buffer.from(diagnostic))
      }
      // A terminated run's exit status says nothing about what it wrote, so it never reconciles the selection.
      if (exitCode === 0 && !control.stalled) {
-@@ -528,10 +658,10 @@ export async function runProfilePnpm(
+@@ -548,10 +678,10 @@ export async function runProfilePnpm(
      clearTimeout(idleTimer)
      // This process saw the run end, so no successor has to wait for it.
      await rm(runRecordPath(dir), { force: true })
@@ -280,7 +284,7 @@ index b9a36d6083..ebf35baeff 100644
    }
  }
 diff --git a/packages/boot/plugin-manager/tests/operations.spec.ts b/packages/boot/plugin-manager/tests/operations.spec.ts
-index 014c314e28..337087ffab 100644
+index b6a87a6475..8d2bd9cc92 100644
 --- a/packages/boot/plugin-manager/tests/operations.spec.ts
 +++ b/packages/boot/plugin-manager/tests/operations.spec.ts
 @@ -1,12 +1,14 @@
@@ -298,9 +302,9 @@ index 014c314e28..337087ffab 100644
 +  anchorPathSpec, profilePnpmStoreState, readProfileRegistry, runPluginCommand, runProfilePnpm, viewProfilePackage,
 +} from '../src/operations.ts'
  
- /** What execa resolves for a run that settled, including the buffered output the pre-install lookup is read for. */
- interface FakeOutcome {
-@@ -89,6 +91,19 @@ function fixture() {
+ /** The manifest fields an inspection prints. */
+ const VIEW_FIELDS = ['name', 'version', 'description', 'dsh'] as const
+@@ -92,6 +94,19 @@ function fixture() {
    return { home, dir, context: { home, profile: 'test', installAnchor, cwd: home }, pnpm }
  }
  
@@ -320,7 +324,7 @@ index 014c314e28..337087ffab 100644
  function result(
    exitCode: number | undefined, output: string, mutate: () => void = () => {},
    details: { code?: string; shortMessage?: string } = {},
-@@ -275,6 +290,166 @@ it('runs an invocation that names no command without a registry lookup', async (
+@@ -312,6 +327,166 @@ it('runs an invocation that names no command without a registry lookup', async (
    expect(pnpm.views).toEqual([])
  })
  

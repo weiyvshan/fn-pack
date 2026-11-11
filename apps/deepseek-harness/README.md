@@ -7,8 +7,8 @@ the platform specification.
 ## Package contract
 
 - App identity: `deepseek-harness`
-- Package version (independent fnOS release series): `0.0.24`
-- Upstream DSH: `@deepseek-ai/dsh` `0.2.1-rc.5`, built from official release commit `b830ec950faba0a46dda564be3e2d854afed94f1`
+- Package version (independent fnOS release series): `0.0.26`
+- Upstream DSH: `@deepseek-ai/dsh` `0.2.2-rc.1`, built from official release commit `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`
 - Platform: x86 only; the source runtime is built and tested as Linux x86-64
 - Runtime dependency: `nodejs_v24`
 - Backend: dynamically selected loopback-only `127.0.0.1` port
@@ -23,7 +23,7 @@ the platform specification.
 - Filesystem sandbox launcher: official `@deepseek-ai/node-addon-system-linux-x64` `0.1.2` (`bin/landlock-run`), hash-locked and functionally probed during the build
 - PTY runtime: upstream `node-pty` `1.2.0-beta.15` with the verified Linux x64 prebuild bundled in `prebuilds/linux-x64/pty.node`
 - Bundled skills: `init`, `dsh-maintenance` plus the fnOS/Linux subset of `skill-creator`, sourced from reviewed G480 user skills, shipped read-only under `${TRIM_APPDEST}/builtin-skills`, and exposed through `DSH_BUNDLED_SKILL_DIR`; the `skill-creator` package subset keeps its Markdown references and Bash helpers but excludes PowerShell scripts
-- Local source deltas: five ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, documented Gateway/Connection transport defaults, and the file-upload Agent-resolver release fix that keeps a session controller registrable after a configuration reload (the upstream 4096 MiB TypeScript build heap is kept as-is)
+- Local source deltas: four ordered, hash-locked patches for fnOS profile-local pnpm stores in the upstream plugin manager, private reverse-proxy browser-authentication handoff, attachment persistence across restricted fnOS volume ancestors, and documented Gateway/Connection transport defaults (the upstream 4096 MiB TypeScript build heap is kept as-is)
 
 The package home is `${TRIM_PKGHOME}` (on the G480 target volume,
 `/vol2/@apphome/deepseek-harness`; on the YDYNAS target volume this is
@@ -140,7 +140,7 @@ and Session persistence formats are unchanged. Historical HAR captures without
 Ping, Pong, or Close frames do not establish heartbeat failure as the cause of
 those disconnects.
 
-Official DSH `0.2.1-rc.5` requires a per-process launch token before it issues
+Official DSH `0.2.2-rc.1` requires a per-process launch token before it issues
 its signed browser-session Cookie. The package passes that token to the
 administrator-only gateway through an atomic mode-`0600` file. The patched
 official Web bundle suppresses native browser opening whenever that managed
@@ -353,9 +353,9 @@ missing copy of the outer manifest.
 `runtime.lock.json` pins its official repository, commit and tree, upstream
 `pnpm-lock.yaml` and CLI manifest hashes, DSH version, pnpm tarball and
 integrity, the official linux-x64 Landlock launcher tarball and integrity,
-the five fnOS source patches and their upstream test targets, platform, and ELF
+the four fnOS source patches and their upstream test targets, platform, and ELF
 machine identifier. The build uses `git archive` for the locked commit, verifies and
-applies all five patches in order, and does not consume an upstream or community
+applies all four patches in order, and does not consume an upstream or community
 FPK.
 
 pnpm is a DSH runtime prerequisite for `dsh plugin`, so the upstream-required
@@ -405,7 +405,7 @@ dependency must be removed later through a separately approved remove action;
 other plugins, bundle order, lockfiles, and the profile-local store must be
 verified around that operation.
 
-The source build runs directly on x86-64 fnOS/Debian with Node.js 22.19 or
+The source build runs directly on x86-64 fnOS/Debian with Node.js 24.9 or
 newer, GCC, Make, Python 3, `readelf`, and Git. From the repository root, run:
 
 ```bash
@@ -498,7 +498,7 @@ executable modes, the source-built
 runtime retains its Linux archive modes, and a stale unversioned FPK cannot be
 mistaken for the current result. The final inspection checks normalized outer
 manifest fields, the nested `app.tgz`, source provenance, the generated
-device-readable build identity, every recorded component hash, all five
+device-readable build identity, every recorded component hash, all four
 packaged source-patch byte identities, runtime closure, pnpm runtime, both
 private-launcher byte identities, Landlock launcher identity and mode, and
 absence of an application-root `LICENSE`. The versioned artifact is named

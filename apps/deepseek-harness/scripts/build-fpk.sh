@@ -444,11 +444,11 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 patches = lock.get("source_patches")
 if (lock.get("schema") != 5
         or not isinstance(patches, list)
-        or len(patches) != 5
+        or len(patches) != 4
         or any(not isinstance(entry, dict) for entry in patches)
         or not isinstance(lock.get("pnpm"), dict)
         or not isinstance(lock.get("landlock_run"), dict)):
-    raise SystemExit("runtime.lock.json must use schema 5 and contain five ordered source_patches plus pnpm and landlock_run objects.")
+    raise SystemExit("runtime.lock.json must use schema 5 and contain four ordered source_patches plus pnpm and landlock_run objects.")
 PY
 ) || die "$_lock_shape"
 
@@ -617,9 +617,6 @@ expected = [
     ("patches/0008-fnos-transport-defaults.patch",
      "source-patches/0008-fnos-transport-defaults.patch",
      "packages/api/gateway/tests/gateway-stream.host.spec.ts packages/client/connection/tests/recovery-config.client.spec.ts"),
-    ("patches/0009-dsh-file-upload-agent-resolver-release.patch",
-     "source-patches/0009-dsh-file-upload-agent-resolver-release.patch",
-     "packages/client/file-upload/tests/file-upload-resolver-release.host.spec.ts"),
 ]
 
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -658,7 +655,7 @@ while IFS='|' read -r _patch_rel _patch_artifact _patch_sha256 _patch_test_targe
     printf '%s|%s|%s|%s\n' "$_patch_rel" "$_patch_artifact" "$_patch_actual" "$_patch_test_target" >> "$PATCH_LIST"
 done < "$STAGE/patch-lock.txt"
 _patch_count=$(count_lines < "$PATCH_LIST")
-[ "$_patch_count" -eq 5 ] || die "Expected five locked source patches, got $_patch_count."
+[ "$_patch_count" -eq 4 ] || die "Expected four locked source patches, got $_patch_count."
 
 # --- source-only runtime marker ---------------------------------------------
 MARKER_PATH_REL='app/server/package.json'
