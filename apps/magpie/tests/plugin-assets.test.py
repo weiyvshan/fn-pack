@@ -79,8 +79,8 @@ class Assets(unittest.TestCase):
         self.assertEqual(lock['plugin']['release'], 'v0.2.19')
         self.assertEqual(lock['bun']['version'], '1.4.2')
         self.assertEqual(lock['bun']['sha256'], 'c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f')
-        self.assertIn('version=0.1.3042-1', (PROJECT / 'manifest').read_text().splitlines())
-        self.assertIn('## 0.1.3042-1', (PROJECT / 'CHANGELOG.md').read_text().splitlines())
+        self.assertIn('version=0.1.3771', (PROJECT / 'manifest').read_text().splitlines())
+        self.assertIn('## 0.1.3771', (PROJECT / 'CHANGELOG.md').read_text().splitlines())
 
 
 if __name__ == '__main__':
