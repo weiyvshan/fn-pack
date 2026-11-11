@@ -1,0 +1,19 @@
+name: Build and release v2rayA
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v2raya-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-v2raya-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    uses: ./.github/workflows/release-app.yml
+    with:
+      app: v2raya

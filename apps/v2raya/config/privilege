@@ -1,0 +1,5 @@
+{
+  "defaults": { "run-as": "package" },
+  "username": "v2raya",
+  "groupname": "v2raya"
+}

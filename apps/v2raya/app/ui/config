@@ -1,0 +1,14 @@
+{
+  ".url": {
+    "v2raya.main": {
+      "title": "v2rayA",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "2017",
+      "url": "/",
+      "allUsers": false,
+      "control": {"accessPerm": "readonly"}
+    }
+  }
+}

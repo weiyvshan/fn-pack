@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+if [ "$(/usr/bin/id -u)" = 0 ]; then echo "v2rayA requires package identity, never root" >&2; exit 1; fi
+exec /var/apps/python312/target/bin/python3.12 -I -B "${0%/*}/control.py" "$@"

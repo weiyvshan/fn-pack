@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "version": "2.5.13",
+  "commit": "3c32891eb390e63e91c35d746a11de88855dae99",
+  "source_archive": {
+    "url": "https://codeload.github.com/v2rayA/v2rayA/tar.gz/refs/tags/v2.5.13",
+    "bytes": 1860283,
+    "sha256": "20f03a9143231e2f04b74cdcb7125c6a44b450a4a28fac92b3e64c13916ec4d9"
+  },
+  "archive": {
+    "filename": "installer_debian_x64_2.5.13.deb",
+    "url": "https://github.com/v2rayA/v2rayA/releases/download/v2.5.13/installer_debian_x64_2.5.13.deb",
+    "bytes": 32860016,
+    "sha256": "01cff69d7df4aec2881a7ffbe55dc8149631378174a689b3c1acbea67f8d9fb0"
+  },
+  "binaries": {
+    "v2raya": {"bytes": 29425824, "sha256": "8370f87eaf5ca177647eca16c8c44a94d5946324ca2d3ba636e1e0dd095b6355", "goamd64": "v1"},
+    "v2raya_core": {"bytes": 36176032, "sha256": "18c117fc285a4ddf1c34ca6ee6592bda3edc5b85544d4f1e6c94b6801f45bd2c", "goamd64": "v1"}
+  }
+}

@@ -14,6 +14,7 @@
 | [CPA Manager Plus](apps/cpa-manager-plus/README.md) | 原生双服务，采用上游发布的二进制 | [CHANGELOG](apps/cpa-manager-plus/CHANGELOG.md) |
 | [Sub2API](apps/sub2api/README.md) | Docker 应用，使用锁定的镜像 | [CHANGELOG](apps/sub2api/CHANGELOG.md) |
 | [Magpie](apps/magpie/README.md) | 原生应用，采用官方静态 CLI | [CHANGELOG](apps/magpie/CHANGELOG.md) |
+| [v2rayA](apps/v2raya/README.md) | 原生非 root lite 应用，官方 Web UI 与配套内核 | [CHANGELOG](apps/v2raya/CHANGELOG.md) |
 
 ## 安装
 
@@ -35,6 +36,7 @@ sha256sum --check SHA256SUMS
 - CPA Manager Plus：[build-fpk.sh](apps/cpa-manager-plus/scripts/build-fpk.sh)。下载并校验官方二进制，再装配安装脚本和配置。
 - Sub2API：[build-fpk.sh](apps/sub2api/scripts/build-fpk.sh)。装配 Compose、镜像引用和安装脚本；打包时不启动 Docker，也不下载镜像。
 - Magpie：[build-fpk.sh](apps/magpie/scripts/build-fpk.sh)。校验官方静态 CLI，运行隔离回归后装配 FPK，无需编译上游程序。
+- v2rayA：[build-fpk.sh](apps/v2raya/scripts/build-fpk.sh)。从锁定的官方 Debian 发行提取主程序、配套核心及 geo 数据，不执行 Debian 安装脚本；校验 AMD64 v1、审计与逐字节核对 FPK。
 
 DSH 需要 Node.js 和 C/C++ 工具链，还会运行真实的 Landlock 内核测试。构建对内存要求较高，本地建议预留至少 16 GB。
 

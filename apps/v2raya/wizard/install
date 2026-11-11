@@ -1,0 +1,30 @@
+[
+  {
+    "stepTitle": "v2rayA 安全初始化",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_v2raya_username",
+        "label": "管理员账号",
+        "required": true,
+        "min": 3,
+        "max": 64,
+        "pattern": "^[A-Za-z0-9_.@-]{3,64}$",
+        "tip": "独立于 fnOS 的账号。保留数据重装或升级时不会覆盖已有账号。"
+      },
+      {
+        "type": "password",
+        "field": "wizard_v2raya_password",
+        "label": "管理员密码（12–32 UTF-8 字节）",
+        "required": true,
+        "min": 12,
+        "max": 32,
+        "tip": "中文字符通常占 3 字节；后端按 UTF-8 字节验证。密码不写入日志，服务仅保存密码哈希。请勿复用 fnOS 密码。"
+      },
+      {
+        "type": "tips",
+        "helpText": "管理端口固定 2017；首次创建并验证管理员后才开放网络监听。以非 root Lite 模式运行，不配置透明代理、TUN 或系统 DNS；初始关闭透明代理、DNS 与自动更新。HTTP 管理入口仅用于可信网络，外网访问请另行配置 HTTPS。卸载保留配置和账号；无本包初始化标记的既有数据库会拒绝启动，不自动接管或重置。"
+      }
+    ]
+  }
+]

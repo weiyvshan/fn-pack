@@ -36,7 +36,7 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, re
           app = os.environ['APP']
-          if app not in ('cpa-manager-plus', 'sub2api', 'magpie'):
+          if app not in ('cpa-manager-plus', 'sub2api', 'magpie', 'v2raya'):
               raise SystemExit('Unsupported application')
           project = pathlib.Path('apps') / app
           fields = {}
@@ -96,6 +96,12 @@ jobs:
             .tmp/magpie-binaries
             .tmp/magpie-plugins
           key: magpie-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/magpie/binary.lock.json', 'apps/magpie/plugin.lock.json') }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: inputs.app == 'v2raya'
+        with:
+          path: .tmp/v2raya-artifacts
+          key: v2raya-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/v2raya/upstream.lock.json') }}
 
       - name: Test, audit and build FPK
         run: |
