@@ -113,7 +113,7 @@ port_busy() {
 # --- manifest ----------------------------------------------------------------
 for spec in \
     'appname=cpa-manager-plus' \
-    'version=1.0.17' \
+    'version=1.0.19' \
     'platform=x86' \
     'source=thirdparty' \
     'os_min_version=1.1.8' \
@@ -332,10 +332,21 @@ json_valid "$PROJECT/binary.lock.json" || fail 'binary.lock.json is not valid JS
 if [ -n "$JSON_TOOL" ]; then
     assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["schema_version"]')" '1' \
         'binary.lock.json schema_version must be 1.'
-    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["package_version"]')" '1.0.17' \
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["package_version"]')" '1.0.19' \
         'binary.lock.json package identity is invalid.'
     assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["package"]')" 'cpa-manager-plus' \
         'binary.lock.json package name is invalid.'
+    # Core-only update: never silently follow the CPAMP v2 release line.
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["components"][0]["version"]')" '1.14.10' \
+        'CPA Manager Plus must remain pinned; manager v2 is out of scope.'
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["components"][0]["sha256"]')" '965c5b9b26df1eb61bbca50a14638b761bc38512e31c6ef726067fc07b9fd074' \
+        'CPA Manager Plus binary must remain unchanged.'
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["components"][0]["archive"]["sha256"]')" '113a651af78f4dd8c5279e03348729411d964043d74bbd338147dafa2bcb8d86' \
+        'CPA Manager Plus archive must remain unchanged.'
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["components"][1]["version"]')" '8.1.2' \
+        'CLIProxyAPI core version differs from the verified release.'
+    assert_eq "$(json_get "$PROJECT/binary.lock.json" 'data["components"][1]["sha256"]')" '16f66e9660e8e91b4f81bc3ae49932d6361548775ff2bab2739dd5b628584fa2' \
+        'CLIProxyAPI core binary differs from the verified release.'
     component_count=$(json_get "$PROJECT/binary.lock.json" 'len(data["components"])')
     assert_eq "$component_count" '2' 'binary.lock.json must describe both bundled components.'
 fi

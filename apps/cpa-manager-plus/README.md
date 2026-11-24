@@ -2,8 +2,9 @@
 
 fnOS 原生双服务包：CPA Manager Plus 提供管理界面，CLIProxyAPI 提供代理服务。
 
-- 飞牛包版本：`1.0.17`，平台：`x86`，声明最低 fnOS：`1.1.8`。
-- 上游组件：CPA Manager Plus `1.14.10`、CLIProxyAPI `8.0.50`。
+- 飞牛包版本：`1.0.19`，平台：`x86`，声明最低 fnOS：`1.1.8`。
+- 上游组件：CPA Manager Plus `1.14.10`、CLIProxyAPI [`8.1.2`](https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.1.2)。
+- 更新策略：本次仅同步 CLIProxyAPI 核心；管理端固定在 `1.14.10`，明确不跟进 CPAMP v2。
 - 管理入口：`18317/management.html`；代理端口：`8317`。
 - 版本与摘要以 [manifest](manifest)、[binary.lock.json](binary.lock.json) 为准。
 - 打包更新见 [CHANGELOG.md](CHANGELOG.md)，第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
@@ -29,7 +30,7 @@ fnOS 原生双服务包：CPA Manager Plus 提供管理界面，CLIProxyAPI 提�
 构建同时执行缓存回归、生命周期测试、真实 CLIProxyAPI v8 迁移、静态审计与 FPK 检查。
 端口 `8317`、`18317` 被占用时生命周期冒烟会明确标为跳过；完整验收需释放测试端口。
 
-产物为 `build/cpa-manager-plus_1.0.17_x86.fpk`，同版本产物受到防覆盖保护。
+产物为 `build/cpa-manager-plus_1.0.19_x86.fpk`，同版本产物受到防覆盖保护。
 二进制、缓存和产物不提交 Git。离线构建前需准备匹配的缓存，可单独核验：
 
 ```bash
@@ -42,7 +43,7 @@ python3 -B apps/cpa-manager-plus/scripts/prepare-binaries.py --offline
 ## 安装与维护
 
 通过 fnOS 应用中心手动安装 FPK；管理员与客户端密钥由安装向导设置，不写入仓库。
-升级保留配置、凭据和使用数据，不主动把旧配置改为 v8；首次成功的 v8 管理写入负责迁移。
+升级保留配置、凭据和使用数据。CLIProxyAPI 8.1 首次启动会在缺失时写入 `server.server-id`，并在需要时将明文管理密钥替换为哈希；这不会搬移旧配置字段。首次成功的 v8 管理写入才会迁移配置结构。
 
 升级前备份配置，并保存同一时间点的数据库与归档。已有大库的新延迟覆盖索引需要
 先通过应用中心停止服务，再对备份确认后的数据库离线执行

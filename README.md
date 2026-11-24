@@ -11,7 +11,7 @@
 | 应用 | 打包方式 | 更新记录 |
 | --- | --- | --- |
 | [DeepSeek Harness](apps/deepseek-harness/README.md) | 原生应用，从锁定源码构建 CLI 和 Web | [CHANGELOG](apps/deepseek-harness/CHANGELOG.md) |
-| [CPA Manager Plus](apps/cpa-manager-plus/README.md) | 原生双服务，采用上游发布的二进制 | [CHANGELOG](apps/cpa-manager-plus/CHANGELOG.md) |
+| [CPA Manager Plus](apps/cpa-manager-plus/README.md) | 原生双服务，FPK 1.0.19；仅更新 CLIProxyAPI 8.1.2，CPAMP 管理端保持 1.14.10 | [CHANGELOG](apps/cpa-manager-plus/CHANGELOG.md) |
 | [Sub2API](apps/sub2api/README.md) | Docker 应用，使用锁定的镜像 | [CHANGELOG](apps/sub2api/CHANGELOG.md) |
 | [Magpie](apps/magpie/README.md) | 原生应用，采用官方静态 CLI | [CHANGELOG](apps/magpie/CHANGELOG.md) |
 | [v2rayA](apps/v2raya/README.md) | 原生非 root lite 应用，官方 Web UI 与配套内核 | [CHANGELOG](apps/v2raya/CHANGELOG.md) |

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "package": "cpa-manager-plus",
-  "package_version": "1.0.17",
+  "package_version": "1.0.19",
   "components": [
     {
       "name": "cpa-manager-plus",
@@ -20,15 +20,15 @@
     },
     {
       "name": "cli-proxy-api",
-      "version": "8.0.50",
+      "version": "8.1.2",
       "archive": {
-        "url": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.50/CLIProxyAPI_8.0.50_linux_amd64.tar.gz",
-        "bytes": 24637044,
-        "sha256": "f0228e8a58631b13990ba09003231e40a2410039031712062d58b5fc871f071b",
+        "url": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.1.2/CLIProxyAPI_8.1.2_linux_amd64.tar.gz",
+        "bytes": 27089169,
+        "sha256": "851e41c9a087b60e6586fec0c6be821b61921e8da0e84b9490ef542042db0756",
         "member": "cli-proxy-api"
       },
-      "bytes": 73819432,
-      "sha256": "6f7d5a7d980ed1362edf2fb237d827aebfe380ea0cf2615b4b75457c7457a44c",
+      "bytes": 80253064,
+      "sha256": "16f66e9660e8e91b4f81bc3ae49932d6361548775ff2bab2739dd5b628584fa2",
       "elf_class": 64,
       "elf_data": "little-endian",
       "elf_machine": 62

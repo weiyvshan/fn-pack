@@ -2,6 +2,20 @@
 
 这里只记录飞牛打包变化与关键升级事项。组件摘要由 `binary.lock.json` 维护。
 
+## 1.0.19
+
+- 仅同步 CLIProxyAPI 核心 `8.0.74` → `8.1.2`；CPA Manager Plus 管理端仍固定为 `1.14.10`，归档与二进制摘要不变，不跟进管理端 v2。
+- `8.1.2` 修复 Copilot 助手历史文本转换，并改进 Antigravity 工具调用续接与凭据隔离。完整变化见 [上游版本比较](https://github.com/router-for-me/CLIProxyAPI/compare/v8.0.74...v8.1.2)。
+- 继续使用支持动态插件、以 GLIBC 2.17 为基线的官方 Linux amd64 构建。不修改 fnOS 生命周期脚本、默认配置或数据目录；升级前仍建议备份配置、数据库和归档。
+- CLIProxyAPI 8.1 启动时会补齐缺失的 `server.server-id`。迁移回归校验首次启动只写入该身份和管理密钥哈希，管理读取不重写配置，首次 v8 写入迁移后仍保留原有凭据和服务端身份。
+
+## 1.0.18
+
+- 仅更新 CLIProxyAPI 核心 `8.0.50` → `8.0.74`；CPA Manager Plus 固定为 `1.14.10`，归档和二进制摘要保持不变，明确不跟进管理端 v2。
+- 官方 `v8.0.74` 稳定 Release 修复 OpenAI Responses WebSocket 创建失败切换、双工配额错误重放保护、Gemini → Claude 文本分块和 Claude advisor 模型后缀处理；JSON/正则实现切换为 moego。完整变化参见官方 `v8.0.50...v8.0.74` 比较。
+- 保留普通 Linux amd64（支持动态插件、GLIBC 2.17 基线）构建；按官方 Release 资产大小和 SHA-256 验证归档，再锁定提取后的 ELF 二进制。
+- 不修改生命周期、默认配置、管理端或数据布局；保留旧配置、凭据和数据，继续执行真实核心 v8 读写迁移回归。`1.14.7` 大库离线 `cleanup-derived` 指引仍适用。
+
 ## 1.0.17
 
 - 成对更新到 CPA Manager Plus `1.14.10`、CLIProxyAPI `8.0.50`。

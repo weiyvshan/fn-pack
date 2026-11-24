@@ -129,20 +129,48 @@ assert_keys_valid() {
     request 401 GET '/v1/models' 'wrong-client-key'
 }
 
-# A pure legacy document starts and keeps the legacy schema. CLIProxyAPI hashes
-# a plaintext management secret once at startup; that expected hardening is not
-# a schema migration, so the read-only baseline is captured after it settles.
+assert_server_id() {
+    request 200 GET '/v8/management/server/server-id' "$MANAGEMENT_KEY"
+    python3 -B - "$RESPONSE_PATH" "$server_id" <<'PY' || fail 'Management API did not return the persisted server ID.'
+import json
+import sys
+
+with open(sys.argv[1], encoding='utf-8') as response:
+    if json.load(response).get('server-id') != sys.argv[2]:
+        raise SystemExit('Server ID changed')
+PY
+}
+
+# A pure legacy document starts and keeps the legacy schema. CLIProxyAPI 8.1
+# persists server.server-id and hashes the plaintext management key at startup.
+# Allow exactly those two changes before capturing the read-only baseline.
 cp "$LEGACY_PATH" "$CONFIG_PATH"
 start_server
-grep -Eq '^remote-management:[[:space:]]*$' "$CONFIG_PATH" || fail 'Legacy startup removed remote-management.'
-grep -Eq '^api-keys:[[:space:]]*$' "$CONFIG_PATH" || fail 'Legacy startup moved the client keys eagerly.'
-if grep -Eq '^(config-version|server|management|access):' "$CONFIG_PATH"; then
-    fail 'Legacy startup performed a v8 schema migration.'
-fi
-grep -Eq '^[[:space:]]+secret-key:[[:space:]]*"?\$2[aby]\$' "$CONFIG_PATH" ||
-    fail 'Legacy startup did not harden the plaintext management key as expected.'
+server_id=$(python3 -B - "$LEGACY_PATH" "$CONFIG_PATH" <<'PY'
+import re
+import sys
+from pathlib import Path
+from uuid import UUID
+
+legacy, actual = (Path(path).read_bytes() for path in sys.argv[1:])
+identity = re.search(rb'^server:\n  server-id: ([0-9a-f-]{36})\n\Z', actual, re.MULTILINE)
+if not identity:
+    raise SystemExit('Expected a final server stanza containing only server-id')
+value = identity[1].decode('ascii')
+if UUID(value).version != 4 or str(UUID(value)) != value:
+    raise SystemExit('Expected a canonical v4 server UUID')
+without_identity = actual[:identity.start()]
+normalized, count = re.subn(rb'^  secret-key: "?\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}"?\n',
+                           b'  secret-key: <normalized>\n', without_identity, flags=re.MULTILINE)
+expected = re.sub(rb'^  secret-key: .*\n', b'  secret-key: <normalized>\n', legacy, flags=re.MULTILINE)
+if count != 1 or normalized != expected:
+    raise SystemExit('Legacy startup changed more than the management key hash and server ID')
+print(value)
+PY
+) || fail 'Legacy startup did not preserve the legacy layout with a persisted identity.'
 cp "$CONFIG_PATH" "$TEST_ROOT/baseline-legacy.yaml"
 assert_keys_valid
+assert_server_id
 request 200 GET '/v8/management/config' "$MANAGEMENT_KEY"
 if ! cmp -s "$CONFIG_PATH" "$TEST_ROOT/baseline-legacy.yaml"; then
     diff -u "$TEST_ROOT/baseline-legacy.yaml" "$CONFIG_PATH" >&2 || :
@@ -161,6 +189,7 @@ start_server
 cmp -s "$CONFIG_PATH" "$VERSIONED_PATH" ||
     fail 'Startup rewrote a versioned legacy document.'
 assert_keys_valid
+assert_server_id
 request 200 GET '/v8/management/config.yaml' "$MANAGEMENT_KEY"
 cmp -s "$CONFIG_PATH" "$VERSIONED_PATH" ||
     fail 'A v8 read rewrote a versioned legacy document.'
@@ -190,8 +219,14 @@ if grep -Eq '^api-keys:[[:space:]]*$' "$CONFIG_PATH"; then
     fail 'Client authentication keys were left at the provider-group root api-keys field.'
 fi
 assert_keys_valid
+assert_server_id
+stop_server
+start_server
+assert_keys_valid
+assert_server_id
 
 printf 'LegacyStartup=passed\n'
+printf 'ServerIdentityPreserved=passed\n'
 printf 'ReadDoesNotMigrate=passed\n'
 printf 'VersionMarkerDoesNotMigrate=passed\n'
 printf 'V8WriteMigrates=passed\n'
