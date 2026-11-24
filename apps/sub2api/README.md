@@ -7,15 +7,15 @@ Sub2API 的飞牛 Docker 打包工程，由应用中心管理网关、PostgreSQL
 
 | 项目 | 当前值 |
 | --- | --- |
-| 飞牛包 | `1.21` |
-| 上游 Sub2API | `0.2.20` |
+| 飞牛包 | `1.23` |
+| 上游 Sub2API | `0.2.24` |
 | 包平台 | `all`，镜像锁覆盖 Linux amd64、arm64 |
 | 服务入口 | `http://<NAS地址>:18081` |
 | 数据服务 | PostgreSQL 18、Redis 8 |
 | 最低 fnOS 声明 | `1.0.0` |
 
-镜像、平台摘要与源码来源统一记录在 [image.lock.json](image.lock.json)，版本变化见 [CHANGELOG](CHANGELOG.md)。
-平台和系统版本声明不代表全部设备已验证；当前 `1.21` 的应用中心实机安装、升级和运行验收尚未完成。
+镜像、平台摘要与源码来源统一记录在 [image.lock.json](image.lock.json)，第三方来源与许可说明见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
+平台和系统版本声明不代表全部设备已验证；当前 `1.23` 的应用中心实机安装、升级和运行验收尚未完成。
 
 ## 部署与数据
 
@@ -32,9 +32,19 @@ Sub2API 的飞牛 Docker 打包工程，由应用中心管理网关、PostgreSQL
 ## 升级与维护
 
 - 升级前保存同一时间点的 PostgreSQL 数据库与应用数据备份，并保留恢复所需的凭据。
-- 上游首次启动会自动执行数据库迁移；`0.2.20` 新增迁移 `249_mcp_oauth.sql`，跨越旧版升级还包括 247（管理员 API Key 表）和 248（分组按张计费字段）。回退旧版本必须恢复匹配备份，仅更换镜像不撤销迁移。
-- `0.2.20` 默认启用请求体内存预算 `1 GiB`、请求体读取超时 `120` 秒和下游写入超时 `120` 秒。预算是活跃请求缓冲体的合计记账，不是预分配或进程 RSS 上限；长 SSE 期间仍可能占用该预算。超时限制单次停滞的读/写，不是正常 SSE 的总时长。小内存、高并发长上下文或慢连接场景需评估；预算耗尽返回 `503` 和 `Retry-After`，请求体读取超时返回 `408`。
-- 实际配置键为 `gateway.request_body_memory_budget_bytes`、`gateway.request_body_read_timeout_seconds`、`gateway.downstream_write_timeout_seconds`（不是发布说明中的 `security.*`）。将这些键合并到已有持久应用数据 `config.yaml` 的 `gateway` 段，保留其余配置和密钥，再通过应用中心重启生效；不要用片段替换整个配置。设为 `0` 可禁用对应限制，但会失去相应保护。宿主 `.env` 不会被本包自动注入容器，也不要热改安装目录中的 Compose 来调参。
+- `0.2.24` 修复请求校验与计费一致性问题。请求体中的重复字段（包括嵌套字段和只差大小写的字段）会被拒绝，带重复字段的 WebSocket 帧可能导致连接关闭。升级前请检查自行拼装请求体的客户端。
+- 上游首次启动会自动执行尚未应用的迁移；`0.2.24` 本身未新增迁移。`0.2.23` 新增 `252_channel_pricing_ultrafast_multiplier.sql`（渠道 Ultra Fast 倍率列）。`0.2.22` 新增 `251_group_force_openai_ultrafast.sql`（分组强制 Ultra Fast 开关）和 `251_group_usage_rollup_nonblocking_build.sql`（分组日汇总的非阻塞重建登记）。`0.2.21` 新增 `249_add_usage_logs_api_key_cost_index_notx.sql`（API Key 用量覆盖索引）和 `250_openai_cache_write_ttl.sql`（写缓存 TTL 统计及价卡列）。
+- 迁移器按完整文件名记录，`249` 与 `251` 各有两个不同文件，均为独立迁移而非互相替换。`249` 的并发建索引不采用普通建索引的写阻塞，但大表首次启动可能较久；`251_group_usage_rollup_nonblocking_build.sql` 以 `_build.sql` 结尾，走普通事务路径并使用 `SET LOCAL lock_timeout = '5s'`。跨越 `0.2.20` 升级还会执行 `249_mcp_oauth.sql`，更旧版本还包括 247（管理员 API Key 表）和 248（分组按张计费字段）。回退旧版本必须恢复匹配备份，仅更换镜像不撤销迁移。
+- `0.2.21` 在配置文件和 `GATEWAY_REQUEST_BODY_MEMORY_BUDGET_BYTES` 均未显式设置时，自动取进程内存上限的四分之一作为请求体预算，下限 `1 GiB`；这里的进程内存上限取物理内存、cgroup 限制和 `GOMEMLIMIT` 的最小有效值，无法探测时回落到 `1 GiB`。本包不注入这些内存变量，也未声明容器内存上限，自动预算可能随 NAS 可见内存增大；升级前评估并发、缓冲和其他服务的内存余量。
+- 已有持久配置若明确设置 `gateway.request_body_memory_budget_bytes: 1073741824`，升级后仍固定 `1 GiB`。需要改为自动预算时，只移除该显式配置项并保留其余配置和密钥；不要自动覆盖用户配置。`0` 仍表示禁用预算，不是启用自动计算。
+- 请求体读取与下游写入超时默认仍各 `120` 秒。预算是活跃请求缓冲体的合计记账，不是预分配或进程 RSS 上限；长 SSE 期间仍可能占用该预算。超时限制单次停滞的读/写，不是正常 SSE 的总时长。预算耗尽返回 `503` 和 `Retry-After`，请求体读取超时返回 `408`。
+- 实际配置键为 `gateway.request_body_memory_budget_bytes`、`gateway.request_body_read_timeout_seconds`、`gateway.downstream_write_timeout_seconds`（不是 `security.*`）。需要固定值时将相应键合并到已有持久应用数据 `config.yaml` 的 `gateway` 段，再通过应用中心重启生效；不要用片段替换整个配置。设为 `0` 可禁用对应限制，但会失去相应保护。宿主 `.env` 不会被本包自动注入容器，也不要热改安装目录中的 Compose 来调参。
+- OpenAI 写缓存新增 `30m` / `12h` TTL 统计和独立 `12h` 价卡列，升级前核对渠道、分组和账号价卡。受支持的 GPT-5.6 / GPT-6 系列在没有显式写缓存定价时，`12h` 默认按输入价的 `2.5` 倍计算；已有通用 `cache_write_price` 的旧价卡在未填独立 `12h` 价格时仍沿用通用价，不是统一改价。
+- `0.2.23` 支持 GPT-6.2 Sol / Astra 与 Ultra Fast 档位：Fast 档 2 倍价，Ultra Fast 档在 2027-03-01 00:00（太平洋时间）前是 3 倍促销价、之后自动切为 6 倍；上下文超过 272K 按长上下文计费。渠道定价新增可覆盖的「Ultra Fast 倍率」，不填时沿用模型自带倍率，只影响 Ultra Fast 档。
+- OpenAI / Composite 分组可强制 `service_tier=ultrafast`，仅对支持的模型（GPT-6 Astra、GPT-6.1 Sol）生效，可与强制 Fast 并存，优先级 Ultra Fast > Fast > 客户端。该开关默认关闭，需要时在分组设置中显式开启。GPT-6.2 Ultra Fast 按订阅套餐放行：Pro 200 只开放 Sol，Pro 500 开放 Sol 和 Astra。
+- `0.2.23` 修正多条协议转换链路的缓存写入用量与计费：Anthropic ↔ OpenAI Responses / Chat Completions 互转不再丢失写缓存 TTL 明细；写缓存明细之和小于总量时差额按 5m 价格补计；OpenAI 网关走 Anthropic 原生路径时 1h 写缓存改按 1h 价格计费。涉及缓存计费的渠道、分组和账号价卡需重新核对。
+- `concurrency.ping_interval` 新增 `0` 值表示关闭并发等待期间的 SSE ping，以避免提前写入 HTTP 状态码；未设置时沿用上游默认 `10` 秒，合法区间仍为 `5–30` 秒。本包不设置该键。
+- 原生 Responses WebSocket 后续轮次限流时以 `1013` 关闭，由客户端重连；非法 UTF-8 的 Responses 请求体现在直接返回 `400`。
 - 管理 MCP 仍默认关闭；本包不设置 `MCP_PUBLIC_URL`、不新增端口或授权向导，也不关闭 OpenAI 传输错误冷却。若需要该接口，应另行规划显式的 HTTPS 入口和包级配置。
 - 上游 drain 窗口和会话缓存改为有界，需留意客户端断开后截断请求的计费口径。GPT-6.1 Terra 的长上下文计费有调整，兼容路径的 `minimal` effort 现返回 `400`；依赖这些行为时升级前先检查模型配置与报价。
 - `0.2.19` 的 Gemini 默认目录已移除 2.x 系列；仍需使用这些模型时，在账号白名单或模型映射中显式配置。OpenAI / Composite 分组的按张计费默认关闭，仅对专用图片端点生效。
@@ -68,7 +78,7 @@ Sub2API 的飞牛 Docker 打包工程，由应用中心管理网关、PostgreSQL
 安装器回归夹具要求临时目录以 `/vol` 开头，本 NAS 仓库路径满足；GitHub 工作流只在临时托管 runner 准备该夹具目录。
 Shell 脚本是权威实现；PowerShell 入口只转发，不维护第二套构建与校验逻辑。
 构建会校验镜像锁、声明、钩子执行位、私有凭据目录及最终 FPK 内层校验值。
-输出为 `build/sub2api_1.21_all.fpk`；脚本拒绝覆盖同版本产物，原产物应独立保留和分发。
+输出为 `build/sub2api_1.23_all.fpk`；脚本拒绝覆盖同版本产物，原产物应独立保留和分发。
 源码检查、构建成功与历史旧版设备记录均不替代当前版本的实机验收。
 
 ## 维护约束

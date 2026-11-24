@@ -4,6 +4,26 @@
 历史材料没有独立发布日期，不补写日期，也不以源码检查代替设备验收。
 安装、数据保留与升级前置条件见 [README](README.md)。
 
+## 1.23
+
+上游版本：`0.2.21 → 0.2.24`（[0.2.22](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.22)、[0.2.23](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.23)、[0.2.24](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.24)）。飞牛包 `1.22` 曾在本地构建但未公开发布；从公开版 `1.21` 升级也会包含下文 `1.22` 的变化。
+
+- 更新主服务镜像。核对官方 OCI 索引、amd64/arm64 平台清单与镜像配置的摘要；两个平台的源码修订均与附注标签指向的提交 `5c2982a81b46e2142d0143d2f83c1ce9c4da1d24` 一致。
+- `0.2.24` 修复网关请求校验与计费一致性问题。带重复字段的请求现在会被拒绝，WebSocket 连接也可能被关闭；依赖旧行为的自定义客户端需调整。另修复 Codex 文献检索返回 `403` 时 OpenAI OAuth 账号被错误停调的问题。
+- `0.2.22` / `0.2.23` 新增分组强制 Ultra Fast（默认关闭）、GPT-6.2 Sol / Astra 和渠道 Ultra Fast 倍率，并修正协议转换中的写缓存统计与计费。使用自定义价卡的部署应复核实际扣费。
+- 保持端口 `18081`、数据挂载、运行凭据、生命周期脚本、PostgreSQL/Redis 镜像摘要和随包许可证文本不变；不启用管理 MCP，也不覆盖上游的请求体内存预算。
+
+相对 `0.2.21` 新增 3 个数据库迁移：`251_group_force_openai_ultrafast.sql`、`251_group_usage_rollup_nonblocking_build.sql` 和 `252_channel_pricing_ultrafast_multiplier.sql`。`0.2.24` 本身没有新增迁移。首次启动会自动执行尚未应用的迁移；升级前请备份同一时间点的数据库与应用数据。回退时须恢复匹配备份，不能只切换镜像。
+本版尚未执行目标 NAS 的安装、升级、冷启动和业务验收。
+
+## 1.22
+
+上游版本：`0.2.20 → 0.2.21`（[上游发布说明](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.21)）。
+
+- 本地构建版，未公开发布。支持 Claude Fable 5.2、Mythos 5.2；OpenAI 写缓存按 `30m` / `12h` 拆分统计和计费。
+- 请求体内存预算未显式配置时改为自动计算：取进程可用内存上限的四分之一，最低 `1 GiB`。显式值仍优先，`0` 仍表示关闭；本包不改写持久配置。
+- 新增 API Key 用量覆盖索引和写缓存 TTL 两条迁移；大表并发建索引可能延长首次启动时间。相同数字前缀的迁移按完整文件名分别记录。
+
 ## 1.21
 
 上游版本：`0.2.19 → 0.2.20`（[上游发布说明](https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.20)）。

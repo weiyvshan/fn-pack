@@ -1,5 +1,5 @@
 appname                    = sub2api
-version                    = 1.21
+version                    = 1.23
 display_name               = Sub2API
 desc                       = AI API gateway for distributing and managing subscription API quotas.
 platform                   = all
@@ -12,5 +12,5 @@ desktop_uidir              = ui
 desktop_applaunchname      = sub2api.Application
 service_port               = 18081
 checkport                  = false
-changelog                  = Update Sub2API to 0.2.20. Back up matching database and application data before automatic migration 249. Gateway defaults now bound request-body memory to 1 GiB and request-body read and downstream write timeouts to 120 seconds. Management MCP remains disabled by default. Review long-context pricing and unsupported minimal effort for GPT-6.1 Terra. Preserve existing ports, credentials and data mounts.
-fpk_version                = 1.21
+changelog                  = 更新 Sub2API 至 0.2.24。修复请求校验与计费一致性问题，拒绝重复字段。支持 GPT-6.2 Sol、Astra 与 Ultra Fast。升级前备份同一时间点的数据库和应用数据，并复核渠道定价。
+fpk_version                = 1.23

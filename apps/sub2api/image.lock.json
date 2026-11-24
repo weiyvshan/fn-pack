@@ -1,22 +1,22 @@
 {
   "schema_version": 1,
-  "resolved_at": "2026-11-10",
+  "resolved_at": "2026-11-24",
   "images": {
     "sub2api": {
       "repository": "docker.io/weishaw/sub2api",
-      "tag": "0.2.20",
-      "manifest_digest": "sha256:ebdd50dda32e7a30c840de884d29dd7cbe52776d34fe2899733535f16a0b2813",
-      "reference": "docker.io/weishaw/sub2api:0.2.20@sha256:ebdd50dda32e7a30c840de884d29dd7cbe52776d34fe2899733535f16a0b2813",
+      "tag": "0.2.24",
+      "manifest_digest": "sha256:c1acdd4cd1c328e6df20e513944d72fff641d4ae8c07d207458156c97c74784a",
+      "reference": "docker.io/weishaw/sub2api:0.2.24@sha256:c1acdd4cd1c328e6df20e513944d72fff641d4ae8c07d207458156c97c74784a",
       "platform_manifests": {
-        "linux/amd64": "sha256:e5da8d1e51cd97fab4464cdfa4e54a1466ecb470ca5ce6d4e740ebeaeef714a0",
-        "linux/arm64": "sha256:c3e8e22f9c7afddae8176cf65aa31ca90e99ab113ff33278a3b49bd220aa58d2"
+        "linux/amd64": "sha256:329e1fb6b17e84bd8d28c7d1da61fc678a3b68c6a2f99180d65541fd774fc652",
+        "linux/arm64": "sha256:293d0f6aadfa02372f30e807558b82b82125c49cdc992eb5dd2cdbceb0cf1be3"
       },
       "source": {
         "repository": "https://github.com/Wei-Shaw/sub2api",
-        "ref": "refs/tags/v0.2.20",
-        "tag_object": "ec41309811cd30af310a0e4b9119b976ce65c9be",
-        "commit": "dab829a4e9b7d1cc307189aea8b0319eb29e29d0",
-        "version": "0.2.20",
+        "ref": "refs/tags/v0.2.24",
+        "tag_object": "7515db6dc56c2a6120dfb7abed70ef089ebc1457",
+        "commit": "5c2982a81b46e2142d0143d2f83c1ce9c4da1d24",
+        "version": "0.2.24",
         "evidence": "Peeled annotated Git tag, official release, Docker Hub and OCI registry digests, and per-platform image revision labels"
       }
     },

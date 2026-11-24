@@ -54,10 +54,10 @@ match_text() { printf '%s\n' "$1" | grep -Fqi -- "$2" || fail "$3"; }
 reject_text() { if printf '%s\n' "$1" | grep -Fqi -- "$2"; then fail "$3"; fi; }
 
 # --- manifest ---------------------------------------------------------------
-match_re "$manifest" '^[[:space:]]*version[[:space:]]*=[[:space:]]*1\.21[[:space:]]*$' \
-    'Manifest version must be 1.21.'
-match_re "$manifest" '^[[:space:]]*fpk_version[[:space:]]*=[[:space:]]*1\.21[[:space:]]*$' \
-    'Manifest fpk_version must match package version 1.21.'
+match_re "$manifest" '^[[:space:]]*version[[:space:]]*=[[:space:]]*1\.23[[:space:]]*$' \
+    'Manifest version must be 1.23.'
+match_re "$manifest" '^[[:space:]]*fpk_version[[:space:]]*=[[:space:]]*1\.23[[:space:]]*$' \
+    'Manifest fpk_version must match package version 1.23.'
 match_re "$manifest" '^[[:space:]]*service_port[[:space:]]*=[[:space:]]*18081[[:space:]]*$' \
     'Manifest service port must be 18081.'
 # fnpack computes the outer checksum from app.tgz during the build. A
@@ -72,7 +72,7 @@ reject_lit "$manifest" ';' \
     'The source manifest must not contain a semicolon, which fnpack parses as a comment.'
 
 # --- pinned images ----------------------------------------------------------
-python3 - "$image_lock" <<'PY' || fail 'image.lock.json does not match the reviewed registry metadata.'
+python3 -B - "$image_lock" <<'PY' || fail 'image.lock.json does not match the reviewed registry metadata.'
 import json
 import re
 import sys
@@ -80,14 +80,14 @@ import sys
 EXPECTED = {
     "sub2api": {
         "repository": "docker.io/weishaw/sub2api",
-        "tag": "0.2.20",
-        "manifest_digest": "sha256:ebdd50dda32e7a30c840de884d29dd7cbe52776d34fe2899733535f16a0b2813",
+        "tag": "0.2.24",
+        "manifest_digest": "sha256:c1acdd4cd1c328e6df20e513944d72fff641d4ae8c07d207458156c97c74784a",
         "source_repository": "https://github.com/Wei-Shaw/sub2api",
-        "source_commit": "dab829a4e9b7d1cc307189aea8b0319eb29e29d0",
-        "source_version": "0.2.20",
+        "source_commit": "5c2982a81b46e2142d0143d2f83c1ce9c4da1d24",
+        "source_version": "0.2.24",
         "platforms": {
-            "linux/amd64": "sha256:e5da8d1e51cd97fab4464cdfa4e54a1466ecb470ca5ce6d4e740ebeaeef714a0",
-            "linux/arm64": "sha256:c3e8e22f9c7afddae8176cf65aa31ca90e99ab113ff33278a3b49bd220aa58d2",
+            "linux/amd64": "sha256:329e1fb6b17e84bd8d28c7d1da61fc678a3b68c6a2f99180d65541fd774fc652",
+            "linux/arm64": "sha256:293d0f6aadfa02372f30e807558b82b82125c49cdc992eb5dd2cdbceb0cf1be3",
         },
     },
     "postgres": {
@@ -156,16 +156,16 @@ for name, want in EXPECTED.items():
             die("the %s %s manifest does not match the reviewed registry index." % (name, platform))
 
 sub2api_source = images["sub2api"]["source"]
-if sub2api_source.get("ref") != "refs/tags/v0.2.20":
-    die("the Sub2API source mapping must retain refs/tags/v0.2.20.")
-if sub2api_source.get("tag_object") != "ec41309811cd30af310a0e4b9119b976ce65c9be":
+if sub2api_source.get("ref") != "refs/tags/v0.2.24":
+    die("the Sub2API source mapping must retain refs/tags/v0.2.24.")
+if sub2api_source.get("tag_object") != "7515db6dc56c2a6120dfb7abed70ef089ebc1457":
     die("the Sub2API source mapping must retain the reviewed annotated tag identity.")
 PY
 
 # The three PS assertions (locked reference present, no stale mirror, every
 # image carries a digest) collapse into one set equality, which also rejects
 # any Composable image line that the lock does not account for.
-python3 - "$image_lock" "$compose" <<'PY' || fail 'Compose does not use the locked image references.'
+python3 -B - "$image_lock" "$compose" <<'PY' || fail 'Compose does not use the locked image references.'
 import json
 import re
 import sys
@@ -222,6 +222,11 @@ reject_re "$compose" '^[[:space:]]*MCP_PUBLIC_URL[[:space:]]*:' \
     'Default Compose must not opt into management MCP.'
 reject_re "$compose" '^[[:space:]]*GATEWAY_DISABLE_OPENAI_TRANSPORT_ERROR_COOLDOWN[[:space:]]*:' \
     'Default Compose must retain upstream transport-error cooldown behavior.'
+# Upstream 0.2.21 auto-sizes the request-body budget only when neither a
+# persistent config value nor the corresponding environment override is set.
+# Do not silently pin the old 1 GiB budget or invent a process memory limit.
+reject_re "$compose" '^[[:space:]]*(GATEWAY_REQUEST_BODY_MEMORY_BUDGET_BYTES|GOMEMLIMIT)[[:space:]]*:' \
+    'Default Compose must preserve upstream request-body memory auto-sizing.'
 
 # --- desktop entry and install wizard ---------------------------------------
 match_re "$entry" '"port"[[:space:]]*:[[:space:]]*"18081"' \
@@ -229,7 +234,7 @@ match_re "$entry" '"port"[[:space:]]*:[[:space:]]*"18081"' \
 reject_lit "$install_wizard" 'wizard_service_port' \
     'The fixed service port must not be exposed as a conflicting wizard field.'
 
-python3 - "$install_wizard" <<'PY' || fail 'The install wizard does not collect a valid administrator identity.'
+python3 -B - "$install_wizard" <<'PY' || fail 'The install wizard does not collect a valid administrator identity.'
 import json
 import sys
 
@@ -372,7 +377,7 @@ reject_lit "$installer" '/var/apps/${TRIM_APPNAME}' \
 # even though the packaged bytes had been rewritten.
 license_hash=$(sha256sum "$license" | awk '{print $1}')
 [ "$license_hash" = 'a5681bf9b05db14d86776930017c647ad9e6e56ff6bbcfdf21e5848288dfaf1b' ] ||
-    fail "The Sub2API LICENSE does not match upstream v0.2.20: $license_hash"
+    fail "The Sub2API LICENSE does not match upstream v0.2.24: $license_hash"
 
 # --- outer and packaged declarations ----------------------------------------
 cmp -s "$outer_resource" "$inner_resource" ||
@@ -380,7 +385,7 @@ cmp -s "$outer_resource" "$inner_resource" ||
 cmp -s "$outer_privilege" "$inner_privilege" ||
     fail 'Outer and packaged privilege declarations must match.'
 
-python3 - "$outer_resource" "$outer_privilege" <<'PY' || fail 'Outer declarations are not valid fnOS JSON or do not isolate the package user.'
+python3 -B - "$outer_resource" "$outer_privilege" <<'PY' || fail 'Outer declarations are not valid fnOS JSON or do not isolate the package user.'
 import json
 import sys
 
